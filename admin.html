@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Deepfun Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+<script>eruda.init();</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+:root {
+  --bg: #08090A; --card: #131513; --card-border: #212320;
+  --text: #F5F7F5; --text-dim: #7C837C; --accent: #3DFF9A;
+  --accent-dark: #06160E; --danger: #FF5C6C;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, sans-serif; min-height: 100vh; }
+#app { max-width: 480px; margin: 0 auto; padding: 20px; min-height: 100vh; display: flex; flex-direction: column; }
+.card { background: var(--card); border: 1px solid var(--card-border); border-radius: 20px; padding: 20px; margin: 12px 0; }
+label { font-size: 13px; font-weight: 600; color: var(--text-dim); display: block; margin-bottom: 8px; }
+input { width: 100%; background: var(--bg); border: 1.5px solid var(--card-border); border-radius: 14px; padding: 14px 16px; color: var(--text); font-size: 15px; outline: none; }
+input:focus { border-color: var(--accent); }
+.btn { border: none; border-radius: 999px; padding: 15px; font-size: 16px; font-weight: 700; cursor: pointer; width: 100%; margin-top: 16px; }
+.btn-primary { background: var(--accent); color: var(--accent-dark); }
+.btn:disabled { opacity: 0.5; }
+.title { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+.subtitle { color: var(--text-dim); font-size: 14px; margin-bottom: 20px; }
+.claim-amount { font-size: 36px; font-weight: 800; margin: 10px 0 20px; letter-spacing: -1px; }
+.token-sub { color: var(--text-dim); font-size: 13px; }
+.token-name { font-weight: 700; font-size: 15px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--card-border); border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+.pill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.error-text { color: var(--danger); font-size: 13px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+import { Connection, PublicKey, Transaction } from "https://esm.sh/@solana/web3.js@1.95.4";
+import { NATIVE_MINT, TOKEN_PROGRAM_ID } from "https://esm.sh/@solana/spl-token@0.4.9";
+import {
+  CpAmm, getUnClaimLpFee, derivePositionNftAccount
+} from "https://esm.sh/@meteora-ag/cp-amm-sdk@1.4.4?bundle";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+
+const SUPABASE_URL = "https://hmxrpdndcsfmvbawaoxr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_fWvokEvXbhni3li1iGnI8w_iCyts6Uq";
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const NETWORK = "mainnet-beta";
+const RPC_URL = NETWORK === "mainnet-beta"
+  ? "https://mainnet.helius-rpc.com/?api-key=3b40bb84-eb28-4b1e-9cdb-cc93fb602326"
+  : "https://api.devnet.solana.com";
+const connection = new Connection(RPC_URL, "confirmed");
+const cpAmm = new CpAmm(connection);
+
+// NOTE ON SECURITY: this password only hides the page from casual visitors —
+// it lives in this file's source, viewable by anyone who inspects it. The
+// REAL security is your wallet's private key: only your treasury wallet can
+// actually sign and claim fees, regardless of who reaches this screen. Treat
+// this as a light deterrent, not a real access-control system.
+const ADMIN_PASSWORD = "changeme123";
+
+let unlocked = sessionStorage.getItem("deepfun_admin_unlocked") === "true";
+let wallet = null;
+
+function shortAddr(a) { return a.slice(0, 4) + "..." + a.slice(-4); }
+
+async function connectWallet() {
+  if (!window.solana || !window.solana.isPhantom) {
+    alert("Open this page inside Phantom's in-app browser, or install Phantom.");
+    return;
+  }
+  try {
+    const resp = await window.solana.connect();
+    wallet = resp.publicKey.toString();
+    render();
+  } catch (err) { console.error(err); }
+}
+
+async function signAndSend(tx, extraSigners = []) {
+  tx.feePayer = new PublicKey(wallet);
+  tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  if (extraSigners.length) tx.partialSign(...extraSigners);
+  const signed = await window.solana.signTransaction(tx);
+  const sig = await connection.sendRawTransaction(signed.serialize());
+  await connection.confirmTransaction(sig, "confirmed");
+  return sig;
+}
+
+async function fetchLaunches() {
+  const { data, error } = await supabase.from("Deepfun1").select("*");
+  if (error) { console.error(error); return []; }
+  return data || [];
+}
+
+function tryUnlock() {
+  const input = document.getElementById("password-input");
+  const errorEl = document.getElementById("password-error");
+  if (input.value === ADMIN_PASSWORD) {
+    unlocked = true;
+    sessionStorage.setItem("deepfun_admin_unlocked", "true");
+    render();
+  } else {
+    errorEl.textContent = "Incorrect password.";
+  }
+}
+
+async function loadAdminData() {
+  const launches = await fetchLaunches();
+  const mine = launches.filter((l) => l.network === NETWORK);
+  let totalLamports = 0n;
+  const rows = [];
+  for (const l of mine) {
+    try {
+      const pool = new PublicKey(l.pool);
+      const position = new PublicKey(l.position_address);
+      const poolState = await cpAmm.fetchPoolState(pool);
+      const positionState = await cpAmm.fetchPositionState(position);
+      const fees = getUnClaimLpFee(poolState, positionState);
+      const pendingSol = BigInt(fees.feeTokenB.toString());
+      totalLamports += pendingSol;
+      rows.push(Object.assign({}, l, { pendingSol }));
+    } catch (err) { console.error("Failed to load fees for " + l.symbol + ":", err); }
+  }
+  const totalSol = Number(totalLamports) / 1e9;
+  document.getElementById("claim-total").textContent = totalSol.toFixed(4) + " SOL";
+  const claimBtn = document.getElementById("claim-all-btn");
+  claimBtn.disabled = totalLamports === 0n;
+  claimBtn.onclick = () => claimAll(rows.filter((r) => r.pendingSol > 0n));
+}
+
+async function claimAll(rows) {
+  for (const r of rows) {
+    try {
+      const pool = new PublicKey(r.pool);
+      const position = new PublicKey(r.position_address);
+      const positionNftMint = new PublicKey(r.position_nft_mint);
+      const tokenAMint = new PublicKey(r.mint);
+      const poolState = await cpAmm.fetchPoolState(pool);
+      const positionNftAccount = derivePositionNftAccount(positionNftMint);
+      const tx = await cpAmm.claimPositionFee({
+        owner: new PublicKey(wallet), position, pool, positionNftAccount, tokenAMint,
+        tokenBMint: NATIVE_MINT, tokenAVault: poolState.tokenAVault, tokenBVault: poolState.tokenBVault,
+        tokenAProgram: TOKEN_PROGRAM_ID, tokenBProgram: TOKEN_PROGRAM_ID,
+      });
+      const sig = await signAndSend(tx);
+      console.log("Claimed " + r.symbol + ": https://solscan.io/tx/" + sig);
+    } catch (err) { console.error("Claim failed for " + r.symbol + ":", err); }
+  }
+  loadAdminData();
+}
+
+function render() {
+  const app = document.getElementById("app");
+
+  if (!unlocked) {
+    app.innerHTML =
+      '<div class="card">' +
+      '<div class="title">Deepfun Admin</div>' +
+      '<div class="subtitle">Enter password to continue</div>' +
+      '<label>Password</label>' +
+      '<input type="password" id="password-input" placeholder="••••••••" />' +
+      '<button class="btn btn-primary" id="unlock-btn">Unlock</button>' +
+      '<div class="error-text" id="password-error"></div>' +
+      '</div>';
+    document.getElementById("unlock-btn").addEventListener("click", tryUnlock);
+    document.getElementById("password-input").addEventListener("keydown", (e) => { if (e.key === "Enter") tryUnlock(); });
+    return;
+  }
+
+  app.innerHTML =
+    '<div class="title">Deepfun Admin</div>' +
+    '<div class="subtitle">Treasury fee management</div>' +
+    (wallet
+      ? '<span class="pill"><span class="pill-dot"></span>' + shortAddr(wallet) + '</span>'
+      : '<button class="btn btn-primary" id="connect-btn" style="margin-top:0;">Connect Treasury Wallet</button>') +
+    (wallet
+      ? '<div class="card"><div class="token-sub">Total claimable fees (all launches)</div>' +
+        '<div class="claim-amount" id="claim-total">Loading...</div>' +
+        '<button class="btn btn-primary" id="claim-all-btn" disabled>Claim All</button></div>'
+      : "");
+
+  const connectBtn = document.getElementById("connect-btn");
+  if (connectBtn) connectBtn.addEventListener("click", connectWallet);
+  if (wallet) loadAdminData();
+}
+
+render();
+</script>
+</body>
+</html>
