@@ -42,7 +42,19 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .filter-pill.active { background: var(--accent); color: var(--accent-dark); border-color: var(--accent); }
 .section-label { font-size: 12px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.8px; margin-bottom: 12px; }
 .token-list { display: flex; flex-direction: column; gap: 10px; }
-.token-row { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--card-border); border-radius: 16px; padding: 12px; cursor: pointer; }
+.token-row { display: flex; gap: 12px; background: var(--card); border: 1px solid var(--card-border); border-radius: 18px; padding: 14px; cursor: pointer; margin-bottom: 10px; transition: border-color 0.15s ease; }
+.token-row:active { border-color: var(--accent); }
+.token-thumb { width: 64px; height: 64px; border-radius: 14px; overflow: hidden; flex-shrink: 0; background: linear-gradient(135deg, var(--sol-purple), var(--sol-green)); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 24px; color: #0A0A0A; }
+.token-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.token-card-body { flex: 1; min-width: 0; }
+.token-card-title-row { display: flex; align-items: center; gap: 8px; }
+.token-symbol-badge { background: var(--bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700; color: var(--accent); }
+.token-card-name { font-weight: 800; font-size: 16px; }
+.token-card-stats { display: flex; gap: 16px; margin-top: 10px; }
+.stat-block { }
+.stat-block .stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-block .stat-value { font-size: 13px; font-weight: 700; margin-top: 1px; }
+.live-badge { background: rgba(61,255,154,0.12); border: 1px solid var(--accent); color: var(--accent); font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 999px; letter-spacing: 0.4px; }
 .token-avatar { width: 46px; height: 46px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-dark), #1a2e22); display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--accent); flex-shrink: 0; overflow: hidden; }
 .token-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .token-info { flex: 1; min-width: 0; }
@@ -169,7 +181,7 @@ function startAutoRefresh() {
   clearInterval(refreshTimer);
   refreshTimer = setInterval(() => {
     if (currentPage === "home" || currentPage === "detail") render();
-  }, 10000);
+  }, 60000);
 }
 let wallet = null;
 let walletMode = null; // "phantom" | "local"
@@ -497,10 +509,19 @@ function renderMenu() {
   panel.innerHTML =
     '<div class="menu-header"><div class="brand"><div class="brand-mark">' + LOGO_SVG + '</div>Deepfun</div>' +
     '<button class="icon-btn" id="menu-close"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>' +
-    '<button class="menu-item ' + (currentPage === "home" ? "active" : "") + '" data-page="home">Home</button>' +
-    '<button class="menu-item ' + (currentPage === "launch" ? "active" : "") + '" data-page="launch">Create Token</button>' +
-    '<button class="menu-item ' + (currentPage === "wallet" ? "active" : "") + '" data-page="wallet">Wallet</button>' +
-    '<button class="menu-item ' + (currentPage === "profile" ? "active" : "") + '" data-page="profile">Profile</button>';
+    '<button class="menu-item ' + (currentPage === "wallet" ? "active" : "") + '" data-page="wallet">Wallet</button>';
+}
+
+function renderBottomTabs() {
+  const icons = {
+    home: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>',
+    launch: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
+    profile: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>',
+  };
+  function item(page, label) {
+    return '<button class="nav-item ' + (currentPage === page ? "active" : "") + '" data-page="' + page + '">' + icons[page] + '<span>' + label + '</span></button>';
+  }
+  return '<div class="bottom-nav">' + item("home", "All Tokens") + item("launch", "Create Token") + item("profile", "Profile") + '</div>';
 }
 
 async function renderHome() {
@@ -517,13 +538,19 @@ async function renderHome() {
   const list = launches.length
     ? launches.map((l) => {
         const stat = homeTokenStats[l.mint];
-        const statHtml = stat
-          ? '<div style="font-weight:700;">$' + stat.mcUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div><div class="token-sub">Liq $' + stat.liquidityUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div>'
-          : '<div class="token-sub" id="stat-' + l.mint + '">...</div>';
-        return '<div class="token-row" data-mint="' + l.mint + '"><div class="token-avatar">' +
-          (l.image_uri ? '<img src="' + l.image_uri + '" />' : (l.symbol ? l.symbol[0] : "?")) +
-          '</div><div class="token-info"><div class="token-name">' + l.name + '</div><div class="token-sub">' + l.symbol + '</div></div>' +
-          '<div style="text-align:right;">' + statHtml + '</div></div>';
+        const statsRow = stat
+          ? '<div class="token-card-stats">' +
+            '<div class="stat-block"><div class="stat-label">TXNs</div><div class="stat-value">' + (stat.txnCount ?? "...") + '</div></div>' +
+            '<div class="stat-block"><div class="stat-label">MC</div><div class="stat-value">$' + stat.mcUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div></div>' +
+            '<div class="stat-block"><div class="stat-label">Liquidity</div><div class="stat-value">$' + stat.liquidityUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div></div>' +
+            '</div>'
+          : '<div class="token-card-stats" id="stat-' + l.mint + '"><div class="stat-block"><div class="stat-value token-sub">Loading...</div></div></div>';
+        return '<div class="token-row" data-mint="' + l.mint + '">' +
+          '<div class="token-thumb">' + (l.image_uri ? '<img src="' + l.image_uri + '" />' : (l.symbol ? l.symbol[0] : "?")) + '</div>' +
+          '<div class="token-card-body">' +
+          '<div class="token-card-title-row"><span class="token-card-name">' + l.name + '</span><span class="token-symbol-badge">' + l.symbol + '</span><span class="live-badge" style="margin-left:auto;">LIVE</span></div>' +
+          statsRow +
+          '</div></div>';
       }).join("")
     : '<div class="empty-state">No tokens launched yet.</div>';
 
@@ -550,10 +577,21 @@ async function loadHomeStats() {
       const pooledToken = Number(poolState.tokenAAmount) / (10 ** TOKEN_DECIMALS);
       const pooledSol = Number(poolState.tokenBAmount) / 1e9;
       const liquidityUsd = (pooledToken * priceUsd) + (pooledSol * solPriceUsd);
-      homeTokenStats[l.mint] = { mcUsd, liquidityUsd };
+
+      let txnCount = "0";
+      try {
+        const sigs = await connection.getSignaturesForAddress(pool, { limit: 50 });
+        txnCount = sigs.length >= 50 ? "50+" : String(sigs.length);
+      } catch (e) {}
+
+      homeTokenStats[l.mint] = { mcUsd, liquidityUsd, txnCount };
 
       const el = document.getElementById("stat-" + l.mint);
-      if (el) el.parentElement.innerHTML = '<div style="font-weight:700;">$' + mcUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div><div class="token-sub">Liq $' + liquidityUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div>';
+      if (el) {
+        el.innerHTML = '<div class="stat-block"><div class="stat-label">TXNs</div><div class="stat-value">' + txnCount + '</div></div>' +
+          '<div class="stat-block"><div class="stat-label">MC</div><div class="stat-value">$' + mcUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div></div>' +
+          '<div class="stat-block"><div class="stat-label">Liquidity</div><div class="stat-value">$' + liquidityUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div></div>';
+      }
     } catch (err) {
       console.error("Failed to load stats for " + l.symbol + ":", err);
     }
@@ -915,7 +953,7 @@ async function render() {
   else if (currentPage === "wallet") pageHtml = renderWallet();
   else if (currentPage === "profile") pageHtml = renderProfile();
 
-  app.innerHTML = renderHeader() + '<div class="content">' + pageHtml + '</div>';
+  app.innerHTML = renderHeader() + '<div class="content" style="padding-bottom:90px;">' + pageHtml + '</div>' + renderBottomTabs();
   renderMenu();
 
   document.getElementById("menu-btn").addEventListener("click", () => {
@@ -929,6 +967,10 @@ async function render() {
 
   document.querySelectorAll(".menu-item").forEach((btn) => {
     btn.addEventListener("click", () => { currentPage = btn.dataset.page; closeMenu(); render(); });
+  });
+
+  document.querySelectorAll(".nav-item").forEach((btn) => {
+    btn.addEventListener("click", () => { currentPage = btn.dataset.page; render(); });
   });
 
   const backBtn = document.getElementById("back-btn");
