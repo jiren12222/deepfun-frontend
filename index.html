@@ -179,7 +179,7 @@ const RPC_URL = NETWORK === "mainnet-beta"
 const connection = new Connection(RPC_URL, "confirmed");
 const cpAmm = new CpAmm(connection);
 const TOKEN_DECIMALS = 6;
-const SOL_LOGO_SVG = '<svg viewBox="0 0 32 32" width="100%" height="100%"><defs><linearGradient id="solGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><g fill="url(#solGrad)"><path d="M5 21.5c.3-.3.7-.5 1.1-.5h19.8c.7 0 1 .8.6 1.3l-3.9 3.9c-.3.3-.7.5-1.1.5H1.7c-.7 0-1-.8-.6-1.3l3.9-3.9z"/><path d="M5 5.3c.3-.3.7-.5 1.1-.5h19.8c.7 0 1 .8.6 1.3l-3.9 3.9c-.3.3-.7.5-1.1.5H1.7c-.7 0-1-.8-.6-1.3L5 5.3z"/><path d="M23.5 13.3c-.3-.3-.7-.5-1.1-.5H2.6c-.7 0-1 .8-.6 1.3l3.9 3.9c.3.3.7.5 1.1.5h19.8c.7 0 1-.8.6-1.3l-3.9-3.9z"/></g></svg>';
+const SOL_LOGO_SVG = '<svg viewBox="0 0 32 32" width="100%" height="100%"><rect width="32" height="32" fill="#000000"/><defs><linearGradient id="solGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><g fill="url(#solGrad)"><path d="M8.5 20.5c.2-.2.5-.35.75-.35h13.5c.5 0 .7.6.4.9l-2.7 2.7c-.2.2-.5.35-.75.35H5.7c-.5 0-.7-.6-.4-.9l3.2-2.7z"/><path d="M8.5 8.7c.2-.2.5-.35.75-.35h13.5c.5 0 .7.6.4.9l-2.7 2.7c-.2.2-.5.35-.75.35H5.7c-.5 0-.7-.6-.4-.9L8.5 8.7z"/><path d="M20.5 14.6c-.2-.2-.5-.35-.75-.35H6.25c-.5 0-.7.6-.4.9l2.7 2.7c.2.2.5.35.75.35h13.5c.5 0 .7-.6.4-.9l-2.7-2.7z"/></g></svg>';
 
 function generateAvatarSvg(address) {
   const palettes = [
@@ -218,7 +218,7 @@ async function fetchSolPriceUsd() {
   return Number(p.price) * Math.pow(10, p.expo);
 }
 
-const LOGO_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2c3 2 5 6 5 10 0 2-1 4-2 5l-3 3-3-3c-1-1-2-3-2-5 0-4 2-8 5-10z" fill="currentColor"/><circle cx="12" cy="10" r="2" fill="#06160E"/><path d="M9 17l-2 4M15 17l2 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+const LOGO_SVG = '<svg width="18" height="18" viewBox="0 0 100 100" fill="none"><defs><linearGradient id="logoGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><g transform="translate(50,52)"><path d="M0,-40 C18,-25 25,-5 18,18 L-18,18 C-25,-5 -18,-25 0,-40 Z" fill="url(#logoGrad)"/><circle cx="0" cy="-12" r="7.5" fill="#08090A"/><path d="M-18,8 L-35,28 L-13,25 Z" fill="url(#logoGrad)"/><path d="M18,8 L35,28 L13,25 Z" fill="url(#logoGrad)"/><path d="M-6,18 L-2,43 L6,18 Z" fill="#F5F7F5"/></g></svg>';
 
 let carouselIndex = 0;
 let carouselTimer = null;
@@ -269,6 +269,7 @@ let cachedHomeLaunches = [];
 let feedCalls = [];
 let feedRefreshTimer = null;
 let feedOpenBuyMint = null;
+let profileDisplayNames = {};
 let showWalletGate = true;
 let currentTokenMc = null;
 
@@ -853,12 +854,16 @@ function renderProfile() {
     return '<h1>Profile</h1><div class="card empty-state">Connect your wallet to view your profile.' +
       '<div style="margin-top:16px;"><button class="btn btn-primary" id="profile-connect-btn">Connect Wallet</button></div></div>';
   }
-  const displayName = generateDisplayName(wallet);
+  const savedName = profileDisplayNames[wallet];
+  const displayName = savedName || generateDisplayName(wallet);
   return '<h1>Profile</h1>' +
     '<div class="card" style="display:flex;align-items:center;gap:12px;">' +
     '<div class="token-avatar" style="width:46px;height:46px;overflow:hidden;">' + generateAvatarSvg(wallet) + '</div>' +
     '<div style="flex:1;min-width:0;">' +
-    '<div class="profile-name">' + displayName + '</div>' +
+    '<div style="display:flex;align-items:center;gap:6px;">' +
+    '<span class="profile-name" id="profile-name-display">' + displayName + '</span>' +
+    '<button id="profile-edit-name-btn" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:2px;display:flex;" title="Edit name"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>' +
+    '</div>' +
     '<div class="profile-addr-row">' +
     '<span class="token-sub" id="profile-address">' + shortAddr(wallet) + '</span>' +
     '<button id="profile-copy-btn" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:2px;display:flex;" title="Copy address"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>' +
@@ -888,6 +893,35 @@ function renderProfile() {
 async function loadProfileData() {
   const el = document.getElementById("profile-launches");
   if (!el) return;
+
+  const editNameBtn = document.getElementById("profile-edit-name-btn");
+  const nameDisplay = document.getElementById("profile-name-display");
+  if (editNameBtn && nameDisplay) {
+    editNameBtn.addEventListener("click", async () => {
+      const current = nameDisplay.textContent;
+      const newName = prompt("Enter a display name:", current);
+      if (newName === null) return;
+      const trimmed = newName.trim().slice(0, 30);
+      if (!trimmed) return;
+      nameDisplay.textContent = trimmed;
+      try {
+        await supabase.from("profiles").upsert({ wallet, display_name: trimmed, updated_at: new Date().toISOString() });
+      } catch (err) {
+        console.error("Failed to save display name:", err);
+      }
+    });
+  }
+
+  try {
+    const { data: profileRow } = await supabase.from("profiles").select("display_name").eq("wallet", wallet).maybeSingle();
+    if (profileRow && profileRow.display_name) {
+      profileDisplayNames[wallet] = profileRow.display_name;
+      const nameEl = document.getElementById("profile-name-display");
+      if (nameEl) nameEl.textContent = profileRow.display_name;
+    }
+  } catch (err) {
+    console.error("Failed to load saved display name:", err);
+  }
 
   const copyBtn = document.getElementById("profile-copy-btn");
   if (copyBtn) {
