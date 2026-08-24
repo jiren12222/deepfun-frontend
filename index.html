@@ -130,7 +130,7 @@ const SUPABASE_URL = "https://hmxrpdndcsfmvbawaoxr.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_fWvokEvXbhni3li1iGnI8w_iCyts6Uq";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const NETWORK = "mainnet-beta";
+const NETWORK = "devnet";
 const RPC_URL = NETWORK === "mainnet-beta"
   ? "https://mainnet.helius-rpc.com/?api-key=3b40bb84-eb28-4b1e-9cdb-cc93fb602326"
   : "https://api.devnet.solana.com";
@@ -247,7 +247,7 @@ async function connectWallet() {
 function shortAddr(a) { return a.slice(0, 4) + "..." + a.slice(-4); }
 
 async function fetchLaunches() {
-  const { data, error } = await supabase.from("Deepfun1").select("*");
+  const { data, error } = await supabase.from("Deepfun1").select("*").eq("network", NETWORK);
   if (error) { console.error(error); return []; }
   return data || [];
 }
