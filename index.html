@@ -66,6 +66,20 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .token-thumb svg { width: 100%; height: 100%; }
 .profile-name { font-weight: 800; font-size: 17px; }
 .profile-addr-row { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.feed-card { background: var(--card); border: 1px solid var(--card-border); border-radius: 16px; padding: 12px; margin-bottom: 8px; }
+.feed-card-top { display: flex; align-items: center; gap: 10px; }
+.feed-caller { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.feed-multiplier { font-weight: 800; font-size: 15px; }
+.feed-actions { display: flex; gap: 8px; margin-top: 10px; }
+.feed-buy-btn { flex: 1; background: var(--accent); color: var(--accent-dark); border: none; border-radius: 10px; padding: 8px; font-weight: 700; font-size: 13px; cursor: pointer; }
+.feed-buy-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--card-border); }
+.feed-preset-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.feed-preset-btn { flex: 1; background: var(--bg); border: 1px solid var(--card-border); color: var(--text); border-radius: 8px; padding: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.feed-preset-btn.active { border-color: var(--accent); color: var(--accent); }
+.feed-amount-row { display: flex; gap: 6px; }
+.feed-amount-input { flex: 1; background: var(--bg); border: 1px solid var(--card-border); color: var(--text); border-radius: 8px; padding: 8px; font-size: 13px; }
+.feed-confirm-btn { background: var(--accent); color: var(--accent-dark); border: none; border-radius: 8px; padding: 8px 14px; font-weight: 700; font-size: 13px; cursor: pointer; }
+.feed-status { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
 .token-name { font-weight: 700; font-size: 15px; }
 .token-sub { color: var(--text-dim); font-size: 13px; }
 .empty-state { text-align: center; color: var(--text-dim); padding: 60px 20px; font-size: 14px; }
@@ -232,6 +246,9 @@ let tradeMode = "buy";
 let homeFilter = "all";
 let homeTokenStats = {};
 let cachedHomeLaunches = [];
+let feedCalls = [];
+let feedRefreshTimer = null;
+let feedOpenBuyMint = null;
 let showWalletGate = true;
 let currentTokenMc = null;
 
@@ -537,7 +554,7 @@ function renderHeader() {
   return '<div class="header">' +
     '<div class="brand"><div class="brand-mark">' + LOGO_SVG + '</div>Deepfun</div>' +
     '<div class="header-right">' +
-    '<button class="pill-outline" id="create-token-btn">Create Token</button>' +
+    '<button class="pill-outline" id="feed-nav-btn">Feed</button>' +
     '</div></div>';
 }
 
@@ -1029,6 +1046,138 @@ async function loadProfileData() {
   }
 }
 
+function renderFeed() {
+  return '<h1>Feed</h1><div class="page-subtitle">Live calls from across Deepfun</div>' +
+    '<div class="token-list" id="feed-list"><div class="card empty-state">Loading feed...</div></div>';
+}
+
+async function loadFeedData() {
+  const el = document.getElementById("feed-list");
+  if (!el) return;
+
+  const [{ data: calls, error }, launches] = await Promise.all([
+    supabase.from("calls").select("*").eq("network", NETWORK).order("created_at", { ascending: false }).limit(30),
+    fetchLaunches(),
+  ]);
+
+  if (error || !calls || !calls.length) {
+    el.innerHTML = '<div class="card empty-state">No calls yet. Be the first to call a token.</div>';
+    return;
+  }
+
+  feedCalls = calls;
+  const rows = [];
+  for (const c of calls) {
+    const launch = launches.find((l) => l.mint === c.mint);
+    if (!launch) continue;
+    let multiplierHtml = '<span class="token-sub">Loading...</span>';
+    try {
+      const liveMc = await getLiveMc(c.mint, launch.pool);
+      const multiplier = liveMc / Number(c.mc_at_call);
+      multiplierHtml = '<span class="feed-multiplier ' + (multiplier >= 1 ? "stat-positive" : "stat-negative") + '">' + multiplier.toFixed(2) + 'x</span>';
+    } catch (err) {
+      console.error("Failed to load live MC for feed call:", err);
+    }
+    const isOpen = feedOpenBuyMint === c.mint;
+    rows.push(
+      '<div class="feed-card" data-call-mint="' + c.mint + '">' +
+      '<div class="feed-card-top">' +
+      '<div class="token-thumb" style="width:44px;height:44px;">' + (launch.image_uri ? '<img src="' + launch.image_uri + '" />' : (launch.symbol ? launch.symbol[0] : "?")) + '</div>' +
+      '<div style="flex:1;min-width:0;">' +
+      '<div class="token-card-title-row"><span class="token-card-name">' + launch.name + '</span><span class="token-symbol-badge">' + launch.symbol + '</span></div>' +
+      '<div class="feed-caller">Called by ' + shortAddr(c.caller) + '</div>' +
+      '</div>' + multiplierHtml +
+      '</div>' +
+      '<div class="feed-actions">' +
+      '<button class="feed-buy-btn" data-buy-mint="' + c.mint + '">Ape In</button>' +
+      '</div>' +
+      (isOpen ? renderFeedBuyPanel(c.mint, launch.pool) : '') +
+      '</div>'
+    );
+  }
+  el.innerHTML = rows.length ? rows.join("") : '<div class="card empty-state">No calls yet. Be the first to call a token.</div>';
+  wireFeedCard();
+}
+
+function renderFeedBuyPanel(mint, pool) {
+  return '<div class="feed-buy-panel" data-panel-mint="' + mint + '" data-panel-pool="' + pool + '">' +
+    '<div class="feed-preset-row">' +
+    '<button class="feed-preset-btn" data-preset="0.1">0.1 SOL</button>' +
+    '<button class="feed-preset-btn" data-preset="0.5">0.5 SOL</button>' +
+    '<button class="feed-preset-btn" data-preset="1">1 SOL</button>' +
+    '</div>' +
+    '<div class="feed-amount-row">' +
+    '<input class="feed-amount-input" type="number" placeholder="Custom SOL amount" data-amount-input="' + mint + '" />' +
+    '<button class="feed-confirm-btn" data-confirm-mint="' + mint + '">Buy</button>' +
+    '</div>' +
+    '<div class="feed-status" data-status-mint="' + mint + '"></div>' +
+    '</div>';
+}
+
+function wireFeedCard() {
+  document.querySelectorAll(".feed-buy-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mint = btn.getAttribute("data-buy-mint");
+      feedOpenBuyMint = feedOpenBuyMint === mint ? null : mint;
+      loadFeedData();
+    });
+  });
+  document.querySelectorAll(".feed-preset-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const panel = btn.closest(".feed-buy-panel");
+      const mint = panel.getAttribute("data-panel-mint");
+      const input = panel.querySelector('[data-amount-input="' + mint + '"]');
+      input.value = btn.getAttribute("data-preset");
+      panel.querySelectorAll(".feed-preset-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+    });
+  });
+  document.querySelectorAll(".feed-confirm-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const mint = btn.getAttribute("data-confirm-mint");
+      const panel = btn.closest(".feed-buy-panel");
+      const pool = panel.getAttribute("data-panel-pool");
+      const input = panel.querySelector('[data-amount-input="' + mint + '"]');
+      const statusEl = panel.querySelector('[data-status-mint="' + mint + '"]');
+      const amount = parseFloat(input.value);
+      if (!wallet) { connectWallet(); return; }
+      if (!amount || amount <= 0) { statusEl.textContent = "Enter an amount."; return; }
+      btn.disabled = true;
+      statusEl.textContent = "Building quote...";
+      try {
+        await executeFeedTrade(mint, pool, amount, statusEl);
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "Error: " + err.message;
+      }
+      btn.disabled = false;
+    });
+  });
+}
+
+async function executeFeedTrade(mint, poolAddr, amountSol, statusEl) {
+  const pool = new PublicKey(poolAddr);
+  const poolState = await cpAmm.fetchPoolState(pool);
+  const slot = await connection.getSlot();
+  const blockTime = await connection.getBlockTime(slot);
+  const tokenAMint = new PublicKey(mint);
+  const amountIn = new BN(Math.floor(amountSol * 1e9));
+  const quote = await cpAmm.getQuote({
+    inAmount: amountIn, inputTokenMint: NATIVE_MINT, slippage: 5, poolState,
+    currentTime: blockTime || Math.floor(Date.now() / 1000), currentSlot: slot,
+    tokenADecimal: TOKEN_DECIMALS, tokenBDecimal: 9,
+  });
+  const tx = await cpAmm.swap({
+    payer: new PublicKey(wallet), pool, inputTokenMint: NATIVE_MINT, outputTokenMint: tokenAMint,
+    amountIn, minimumAmountOut: quote.minSwapOutAmount, tokenAMint, tokenBMint: NATIVE_MINT,
+    tokenAVault: poolState.tokenAVault, tokenBVault: poolState.tokenBVault,
+    tokenAProgram: TOKEN_PROGRAM_ID, tokenBProgram: TOKEN_PROGRAM_ID, referralTokenAccount: null,
+  });
+  statusEl.textContent = "Approve in Phantom...";
+  const sig = await signAndSend(tx);
+  statusEl.textContent = "Done! " + sig.slice(0, 12) + "...";
+}
+
 function renderWalletGate() {
   return '<div style="min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:24px;">' +
     '<div style="text-align:center;margin-bottom:32px;">' +
@@ -1115,6 +1264,7 @@ async function render() {
   else if (currentPage === "detail") pageHtml = renderDetail();
   else if (currentPage === "wallet") pageHtml = renderWallet();
   else if (currentPage === "profile") pageHtml = renderProfile();
+  else if (currentPage === "feed") pageHtml = renderFeed();
 
   app.innerHTML = renderHeader() + '<div class="content" style="padding-bottom:90px;">' + pageHtml + '</div>' + renderBottomTabs();
   renderMenu();
@@ -1126,7 +1276,7 @@ async function render() {
   });
   document.getElementById("menu-close")?.addEventListener("click", closeMenu);
   document.getElementById("menu-overlay").addEventListener("click", closeMenu);
-  document.getElementById("create-token-btn").addEventListener("click", () => { currentPage = "launch"; render(); });
+  document.getElementById("feed-nav-btn").addEventListener("click", () => { currentPage = "feed"; render(); });
 
   document.querySelectorAll(".menu-item").forEach((btn) => {
     btn.addEventListener("click", () => { currentPage = btn.dataset.page; closeMenu(); render(); });
@@ -1145,6 +1295,11 @@ async function render() {
   const profileConnectBtn = document.getElementById("profile-connect-btn");
   if (profileConnectBtn) profileConnectBtn.addEventListener("click", connectWallet);
   if (currentPage === "profile" && wallet) loadProfileData();
+  if (feedRefreshTimer) { clearInterval(feedRefreshTimer); feedRefreshTimer = null; }
+  if (currentPage === "feed") {
+    loadFeedData();
+    feedRefreshTimer = setInterval(loadFeedData, 60000);
+  }
 
   document.querySelectorAll(".token-row").forEach((el) => {
     el.addEventListener("click", async () => {
