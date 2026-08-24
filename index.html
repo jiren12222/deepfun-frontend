@@ -308,10 +308,11 @@ async function submitLaunch() {
         if (!imgRes.ok) {
           console.error("Image upload failed:", imgData);
         } else {
-          imageUrl = imgData.url;
+          imageUrl = imgData.url; // dedicated gateway — used for our own app's image_uri
+          const publicImageUrl = "https://ipfs.io/ipfs/" + imgData.cid; // universal gateway — used on-chain
 
           statusEl.textContent = "Uploading metadata to IPFS...";
-          const metadataJson = JSON.stringify({ name, symbol, image: imageUrl, description: "" });
+          const metadataJson = JSON.stringify({ name, symbol, image: publicImageUrl, description: "" });
           const metadataBase64 = btoa(unescape(encodeURIComponent(metadataJson)));
           const jsonRes = await fetch("/api/upload-to-pinata", {
             method: "POST",
