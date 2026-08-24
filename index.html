@@ -137,6 +137,7 @@ const RPC_URL = NETWORK === "mainnet-beta"
 const connection = new Connection(RPC_URL, "confirmed");
 const cpAmm = new CpAmm(connection);
 const TOKEN_DECIMALS = 6;
+const SOL_LOGO_SVG = '<svg viewBox="0 0 32 32" width="100%" height="100%"><defs><linearGradient id="solGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><g fill="url(#solGrad)"><path d="M5 21.5c.3-.3.7-.5 1.1-.5h19.8c.7 0 1 .8.6 1.3l-3.9 3.9c-.3.3-.7.5-1.1.5H1.7c-.7 0-1-.8-.6-1.3l3.9-3.9z"/><path d="M5 5.3c.3-.3.7-.5 1.1-.5h19.8c.7 0 1 .8.6 1.3l-3.9 3.9c-.3.3-.7.5-1.1.5H1.7c-.7 0-1-.8-.6-1.3L5 5.3z"/><path d="M23.5 13.3c-.3-.3-.7-.5-1.1-.5H2.6c-.7 0-1 .8-.6 1.3l3.9 3.9c.3.3.7.5 1.1.5h19.8c.7 0 1-.8.6-1.3l-3.9-3.9z"/></g></svg>';
 const BASE_FEE_BPS = 1000;
 
 const SOL_USD_FEED_ID = "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
@@ -501,16 +502,11 @@ function renderHeader() {
     '<div class="brand"><div class="brand-mark">' + LOGO_SVG + '</div>Deepfun</div>' +
     '<div class="header-right">' +
     '<button class="pill-outline" id="create-token-btn">Create Token</button>' +
-    '<button class="icon-btn" id="menu-btn"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>' +
     '</div></div>';
 }
 
 function renderMenu() {
-  const panel = document.getElementById("menu-panel");
-  panel.innerHTML =
-    '<div class="menu-header"><div class="brand"><div class="brand-mark">' + LOGO_SVG + '</div>Deepfun</div>' +
-    '<button class="icon-btn" id="menu-close"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>' +
-    '<button class="menu-item ' + (currentPage === "wallet" ? "active" : "") + '" data-page="wallet">Wallet</button>';
+  // Hamburger sidebar removed — Profile page covers wallet info directly.
 }
 
 function renderBottomTabs() {
@@ -785,47 +781,119 @@ function renderProfile() {
       '<div style="margin-top:16px;"><button class="btn btn-primary" id="profile-connect-btn">Connect Wallet</button></div></div>';
   }
   return '<h1>Profile</h1>' +
-    '<div class="card" style="text-align:center;">' +
-    '<div class="token-avatar" style="width:64px;height:64px;margin:0 auto 12px;font-size:24px;">' + wallet.slice(0, 2) + '</div>' +
-    '<div style="font-weight:700;">' + shortAddr(wallet) + '</div>' +
-    '<div class="token-sub">' + (walletMode === "local" ? "In-app wallet" : "Phantom") + '</div>' +
+    '<div class="card" style="display:flex;align-items:center;gap:12px;">' +
+    '<div class="token-avatar" style="width:46px;height:46px;font-size:16px;">' + wallet.slice(0, 2) + '</div>' +
+    '<div style="flex:1;min-width:0;">' +
+    '<div style="display:flex;align-items:center;gap:8px;">' +
+    '<span style="font-weight:700;" id="profile-address">' + shortAddr(wallet) + '</span>' +
+    '<button id="profile-copy-btn" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:2px;" title="Copy address"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>' +
     '</div>' +
+    '<div class="token-sub">' + (walletMode === "local" ? "In-app wallet" : "Phantom") + '</div>' +
+    '</div></div>' +
+    '<div class="card balance-hero"><div class="balance-amount" id="profile-balance-usd">Loading...</div><div class="balance-sub" id="profile-balance-sol">—</div></div>' +
+    '<div class="section-label">TOKEN BALANCES</div>' +
+    '<div class="card" id="profile-holdings"><div class="empty-state">Loading...</div></div>' +
+    '<div class="section-label">STATS</div>' +
     '<div class="card"><div style="display:flex;justify-content:space-between;">' +
-    '<div><div class="token-sub">SOL Balance</div><div style="font-weight:700;" id="profile-balance">Loading...</div></div>' +
-    '<div style="text-align:right;"><div class="token-sub">Coins Created</div><div style="font-weight:700;" id="profile-launch-count">...</div></div>' +
+    '<div><div class="token-sub">Coins Created</div><div style="font-weight:700;" id="profile-launch-count">...</div></div>' +
+    '<div style="text-align:right;"><div class="token-sub">Shout-outs Made</div><div style="font-weight:700;" id="profile-call-count">...</div></div>' +
     '</div></div>' +
     '<div class="card"><div style="display:flex;justify-content:space-between;">' +
-    '<div><div class="token-sub">Shout-outs (Calls Made)</div><div style="font-weight:700;" id="profile-call-count">...</div></div>' +
-    '<div style="text-align:right;"><div class="token-sub">Highest Call</div><div style="font-weight:700;" id="profile-highest-call">...</div></div>' +
+    '<div><div class="token-sub">Highest Call</div><div style="font-weight:700;" id="profile-highest-call">...</div></div>' +
     '</div></div>' +
     '<div class="card" style="font-size:12px;color:var(--text-dim);">' +
     'Overall profit/loss isn\'t built yet — it needs a proper trade-history and cost-basis system, coming as its own feature.' +
     '</div>' +
-    '<div class="section-label">MY CALLS</div>' +
-    '<div class="card" id="profile-calls"><div class="empty-state">Loading...</div></div>' +
     '<div class="section-label">MY LAUNCHES</div>' +
-    '<div class="card" id="profile-launches"><div class="empty-state">Loading...</div></div>';
+    '<div class="card" id="profile-launches"><div class="empty-state">Loading...</div></div>' +
+    '<div class="section-label">MY CALLS</div>' +
+    '<div class="card" id="profile-calls"><div class="empty-state">Loading...</div></div>';
 }
 
 async function loadProfileData() {
   const el = document.getElementById("profile-launches");
   if (!el) return;
 
-  const balanceLamports = await connection.getBalance(new PublicKey(wallet));
-  const balEl = document.getElementById("profile-balance");
-  if (balEl) balEl.textContent = (balanceLamports / 1e9).toFixed(4) + " SOL";
+  const copyBtn = document.getElementById("profile-copy-btn");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(wallet);
+      const original = copyBtn.innerHTML;
+      copyBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
+      setTimeout(() => { copyBtn.innerHTML = original; }, 1500);
+    });
+  }
 
-  const launches = await fetchLaunches();
+  const [balanceLamports, solPriceUsd, launches] = await Promise.all([
+    connection.getBalance(new PublicKey(wallet)),
+    fetchSolPriceUsd(),
+    fetchLaunches(),
+  ]);
+  const solBalance = balanceLamports / 1e9;
+
+  const usdEl = document.getElementById("profile-balance-usd");
+  const solEl = document.getElementById("profile-balance-sol");
+  if (usdEl) usdEl.textContent = "$" + (solBalance * solPriceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (solEl) solEl.textContent = "≈ " + solBalance.toFixed(4) + " SOL";
+
+  const holdingsEl = document.getElementById("profile-holdings");
+  if (holdingsEl) {
+    try {
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(new PublicKey(wallet), { programId: TOKEN_PROGRAM_ID });
+      const rows = [
+        '<div class="holding-row"><div class="holding-icon">' + SOL_LOGO_SVG + '</div>' +
+        '<div class="holding-info"><div class="holding-name">SOL</div><div class="holding-sub">Solana</div></div>' +
+        '<div class="holding-value"><div class="holding-amount">' + solBalance.toFixed(4) + '</div><div class="holding-usd">$' + (solBalance * solPriceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div></div>'
+      ];
+
+      for (const acc of tokenAccounts.value) {
+        const info = acc.account.data.parsed.info;
+        const amount = info.tokenAmount.uiAmount;
+        if (!amount || amount <= 0) continue;
+        const mint = info.mint;
+        const registryEntry = launches.find((l) => l.mint === mint);
+        if (registryEntry && registryEntry.symbol === "DFNTEST") continue;
+        const name = registryEntry ? registryEntry.name : shortAddr(mint);
+        const symbol = registryEntry ? registryEntry.symbol : "";
+        const iconHtml = registryEntry && registryEntry.image_uri
+          ? '<img src="' + registryEntry.image_uri + '" />'
+          : (symbol ? symbol[0] : "?");
+        rows.push(
+          '<div class="holding-row"' + (registryEntry ? ' data-mint="' + mint + '" style="cursor:pointer;"' : '') + '><div class="holding-icon">' + iconHtml + '</div>' +
+          '<div class="holding-info"><div class="holding-name">' + name + '</div><div class="holding-sub">' + symbol + '</div></div>' +
+          '<div class="holding-value"><div class="holding-amount">' + amount.toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div></div>'
+        );
+      }
+      holdingsEl.innerHTML = rows.join("");
+      holdingsEl.querySelectorAll(".holding-row[data-mint]").forEach((row) => {
+        row.addEventListener("click", () => {
+          const mint = row.getAttribute("data-mint");
+          const launch = launches.find((l) => l.mint === mint);
+          if (launch) { activeToken = launch; currentPage = "detail"; render(); }
+        });
+      });
+    } catch (err) {
+      console.error("Failed to load token holdings:", err);
+      holdingsEl.innerHTML = '<div class="empty-state">Couldn\'t load holdings.</div>';
+    }
+  }
+
   const mine = launches.filter((l) => l.creator === wallet);
-
   const countEl = document.getElementById("profile-launch-count");
   if (countEl) countEl.textContent = mine.length;
+  if (el) {
+    el.innerHTML = mine.length
+      ? mine.map((l) => '<div class="holding-row" data-mint="' + l.mint + '" style="cursor:pointer;"><div class="token-sub">' + l.name + '</div><div class="token-sub">' + l.symbol + '</div></div>').join("")
+      : '<div class="empty-state">No launches yet from this wallet.</div>';
+    el.querySelectorAll(".holding-row[data-mint]").forEach((row) => {
+      row.addEventListener("click", () => {
+        const mint = row.getAttribute("data-mint");
+        const launch = mine.find((l) => l.mint === mint);
+        if (launch) { activeToken = launch; currentPage = "detail"; render(); }
+      });
+    });
+  }
 
-  el.innerHTML = mine.length
-    ? mine.map((l) => '<div class="holding-row"><div class="token-sub">' + l.name + '</div><div class="token-sub">' + l.symbol + '</div></div>').join("")
-    : '<div class="empty-state">No launches yet from this wallet.</div>';
-
-  // Calls
   const { data: calls, error: callsErr } = await supabase.from("calls").select("*").eq("caller", wallet);
   const callCountEl = document.getElementById("profile-call-count");
   const highestCallEl = document.getElementById("profile-highest-call");
@@ -957,7 +1025,7 @@ async function render() {
   app.innerHTML = renderHeader() + '<div class="content" style="padding-bottom:90px;">' + pageHtml + '</div>' + renderBottomTabs();
   renderMenu();
 
-  document.getElementById("menu-btn").addEventListener("click", () => {
+  document.getElementById("menu-btn")?.addEventListener("click", () => {
     menuOpen = true;
     document.getElementById("menu-overlay").classList.add("open");
     document.getElementById("menu-panel").classList.add("open");
