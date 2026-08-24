@@ -80,6 +80,19 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .feed-amount-input { flex: 1; background: var(--bg); border: 1px solid var(--card-border); color: var(--text); border-radius: 8px; padding: 8px; font-size: 13px; }
 .feed-confirm-btn { background: var(--accent); color: var(--accent-dark); border: none; border-radius: 8px; padding: 8px 14px; font-weight: 700; font-size: 13px; cursor: pointer; }
 .feed-status { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+.post-caption { font-size: 14px; margin: 8px 0; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+.call-caption-input { width: 100%; background: var(--bg); border: 1px solid var(--card-border); color: var(--text); border-radius: 10px; padding: 10px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 60px; margin-bottom: 10px; box-sizing: border-box; }
+.post-action-row { display: flex; gap: 4px; margin-top: 8px; border-top: 1px solid var(--card-border); padding-top: 8px; }
+.post-action-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; background: none; border: none; color: var(--text-dim); font-size: 12px; font-weight: 700; cursor: pointer; padding: 6px 4px; border-radius: 8px; }
+.post-action-btn.liked { color: #FF5C6C; }
+.post-action-btn.reposted { color: var(--accent); }
+.post-action-btn svg { flex-shrink: 0; }
+.comment-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--card-border); }
+.comment-row { padding: 6px 0; font-size: 12px; }
+.comment-author { font-weight: 700; color: var(--accent); margin-right: 6px; }
+.comment-input-row { display: flex; gap: 6px; margin-top: 8px; }
+.comment-input { flex: 1; background: var(--bg); border: 1px solid var(--card-border); color: var(--text); border-radius: 8px; padding: 7px 10px; font-size: 12px; }
+.comment-send-btn { background: var(--accent); color: var(--accent-dark); border: none; border-radius: 8px; padding: 7px 12px; font-weight: 700; font-size: 12px; cursor: pointer; }
 .token-name { font-weight: 700; font-size: 15px; }
 .token-sub { color: var(--text-dim); font-size: 13px; }
 .empty-state { text-align: center; color: var(--text-dim); padding: 60px 20px; font-size: 14px; }
@@ -671,7 +684,7 @@ function renderDetail() {
     '<span class="token-sub" style="font-size:12px;">' + activeToken.mint.slice(0, 6) + '...' + activeToken.mint.slice(-6) + '</span>' +
     '<button class="btn-secondary" id="copy-ca-btn" style="border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;border:1px solid var(--card-border);background:var(--bg);color:var(--accent);cursor:pointer;">Copy CA</button>' +
     '</div>' +
-    (wallet ? '<button class="btn btn-secondary btn-block" id="call-token-btn" style="margin-bottom:14px;">📣 Call this token</button>' : '') +
+    (wallet ? '<textarea class="call-caption-input" id="call-caption-input" placeholder="Say something about this call..."></textarea><button class="btn btn-secondary btn-block" id="call-token-btn" style="margin-bottom:14px;">📣 Call this token</button>' : '') +
     '<div class="card" id="token-stats-card"><div class="empty-state" style="padding:20px;">Loading stats...</div></div>' +
     '<div class="card" style="padding:0;overflow:hidden;">' +
     '<iframe src="https://www.geckoterminal.com/solana/pools/' + activeToken.pool + '?embed=1&info=0&swaps=0&light_chart=0&chart_type=market_cap&resolution=1d&bg_color=08090A" style="width:100%;height:360px;border:none;display:block;" loading="lazy" allow="clipboard-write"></iframe>' +
@@ -1066,6 +1079,14 @@ async function loadFeedData() {
   }
 
   feedCalls = calls;
+  const callIds = calls.map((c) => c.id);
+
+  const [{ data: likes }, { data: comments }, { data: reposts }] = await Promise.all([
+    supabase.from("likes").select("*").in("call_id", callIds),
+    supabase.from("comments").select("*").in("call_id", callIds).order("created_at", { ascending: true }),
+    supabase.from("reposts").select("*").in("call_id", callIds),
+  ]);
+
   const rows = [];
   for (const c of calls) {
     const launch = launches.find((l) => l.mint === c.mint);
@@ -1078,9 +1099,19 @@ async function loadFeedData() {
     } catch (err) {
       console.error("Failed to load live MC for feed call:", err);
     }
-    const isOpen = feedOpenBuyMint === c.mint;
+
+    const callLikes = (likes || []).filter((l) => l.call_id === c.id);
+    const callComments = (comments || []).filter((cm) => cm.call_id === c.id);
+    const callReposts = (reposts || []).filter((r) => r.call_id === c.id);
+    const iLiked = wallet && callLikes.some((l) => l.wallet === wallet);
+    const iReposted = wallet && callReposts.some((r) => r.reposter === wallet);
+
+    const commentsHtml = callComments.map((cm) =>
+      '<div class="comment-row"><span class="comment-author">' + shortAddr(cm.commenter) + '</span>' + escapeHtml(cm.body) + '</div>'
+    ).join("");
+
     rows.push(
-      '<div class="feed-card" data-call-mint="' + c.mint + '">' +
+      '<div class="feed-card" data-call-id="' + c.id + '" data-call-mint="' + c.mint + '" data-call-pool="' + launch.pool + '">' +
       '<div class="feed-card-top">' +
       '<div class="token-thumb" style="width:44px;height:44px;">' + (launch.image_uri ? '<img src="' + launch.image_uri + '" />' : (launch.symbol ? launch.symbol[0] : "?")) + '</div>' +
       '<div style="flex:1;min-width:0;">' +
@@ -1088,71 +1119,175 @@ async function loadFeedData() {
       '<div class="feed-caller">Called by ' + shortAddr(c.caller) + '</div>' +
       '</div>' + multiplierHtml +
       '</div>' +
-      '<div class="feed-actions">' +
-      '<button class="feed-buy-btn" data-buy-mint="' + c.mint + '">Ape In</button>' +
+      (c.caption ? '<div class="post-caption">' + escapeHtml(c.caption) + '</div>' : '') +
+      '<div class="post-action-row">' +
+      '<button class="post-action-btn like-btn ' + (iLiked ? "liked" : "") + '" data-call-id="' + c.id + '">♥ ' + callLikes.length + '</button>' +
+      '<button class="post-action-btn comment-toggle-btn" data-call-id="' + c.id + '">💬 ' + callComments.length + '</button>' +
+      '<button class="post-action-btn repost-btn ' + (iReposted ? "reposted" : "") + '" data-call-id="' + c.id + '">🔁 ' + callReposts.length + '</button>' +
+      '<button class="post-action-btn buy-toggle-btn" data-call-id="' + c.id + '">Buy</button>' +
       '</div>' +
-      (isOpen ? renderFeedBuyPanel(c.mint, launch.pool) : '') +
+      '<div class="comment-section" data-comment-section="' + c.id + '" style="display:none;">' +
+      '<div class="comment-list" data-comment-list="' + c.id + '">' + commentsHtml + '</div>' +
+      '<div class="comment-input-row"><input class="comment-input" placeholder="Add a comment..." data-comment-input="' + c.id + '" />' +
+      '<button class="comment-send-btn" data-comment-send="' + c.id + '">Post</button></div>' +
+      '</div>' +
+      '<div class="feed-buy-panel" data-buy-panel="' + c.id + '" style="display:none;">' +
+      '<div class="feed-preset-row">' +
+      '<button class="feed-preset-btn" data-preset="0.1">0.1 SOL</button>' +
+      '<button class="feed-preset-btn" data-preset="0.5">0.5 SOL</button>' +
+      '<button class="feed-preset-btn" data-preset="1">1 SOL</button>' +
+      '</div>' +
+      '<div class="feed-amount-row">' +
+      '<input class="feed-amount-input" type="number" placeholder="Custom SOL amount" data-amount-input="' + c.id + '" />' +
+      '<button class="feed-confirm-btn" data-confirm-id="' + c.id + '">Buy</button>' +
+      '</div>' +
+      '<div class="feed-status" data-status-id="' + c.id + '"></div>' +
+      '</div>' +
       '</div>'
     );
   }
   el.innerHTML = rows.length ? rows.join("") : '<div class="card empty-state">No calls yet. Be the first to call a token.</div>';
-  wireFeedCard();
+  wireFeedList();
 }
 
-function renderFeedBuyPanel(mint, pool) {
-  return '<div class="feed-buy-panel" data-panel-mint="' + mint + '" data-panel-pool="' + pool + '">' +
-    '<div class="feed-preset-row">' +
-    '<button class="feed-preset-btn" data-preset="0.1">0.1 SOL</button>' +
-    '<button class="feed-preset-btn" data-preset="0.5">0.5 SOL</button>' +
-    '<button class="feed-preset-btn" data-preset="1">1 SOL</button>' +
-    '</div>' +
-    '<div class="feed-amount-row">' +
-    '<input class="feed-amount-input" type="number" placeholder="Custom SOL amount" data-amount-input="' + mint + '" />' +
-    '<button class="feed-confirm-btn" data-confirm-mint="' + mint + '">Buy</button>' +
-    '</div>' +
-    '<div class="feed-status" data-status-mint="' + mint + '"></div>' +
-    '</div>';
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
 }
 
-function wireFeedCard() {
-  document.querySelectorAll(".feed-buy-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const mint = btn.getAttribute("data-buy-mint");
-      feedOpenBuyMint = feedOpenBuyMint === mint ? null : mint;
-      loadFeedData();
-    });
-  });
-  document.querySelectorAll(".feed-preset-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const panel = btn.closest(".feed-buy-panel");
-      const mint = panel.getAttribute("data-panel-mint");
-      const input = panel.querySelector('[data-amount-input="' + mint + '"]');
-      input.value = btn.getAttribute("data-preset");
+let feedListWired = false;
+function wireFeedList() {
+  const list = document.getElementById("feed-list");
+  if (!list || feedListWired) { if (list) attachFeedListener(list); return; }
+  feedListWired = true;
+  attachFeedListener(list);
+}
+
+function attachFeedListener(list) {
+  list.onclick = async (e) => {
+    const likeBtn = e.target.closest(".like-btn");
+    if (likeBtn) return handleLike(likeBtn);
+
+    const commentToggle = e.target.closest(".comment-toggle-btn");
+    if (commentToggle) {
+      const section = list.querySelector('[data-comment-section="' + commentToggle.getAttribute("data-call-id") + '"]');
+      if (section) section.style.display = section.style.display === "none" ? "block" : "none";
+      return;
+    }
+
+    const commentSend = e.target.closest("[data-comment-send]");
+    if (commentSend) return handleComment(commentSend, list);
+
+    const repostBtn = e.target.closest(".repost-btn");
+    if (repostBtn) return handleRepost(repostBtn);
+
+    const buyToggle = e.target.closest(".buy-toggle-btn");
+    if (buyToggle) {
+      const panel = list.querySelector('[data-buy-panel="' + buyToggle.getAttribute("data-call-id") + '"]');
+      if (panel) panel.style.display = panel.style.display === "none" ? "block" : "none";
+      return;
+    }
+
+    const presetBtn = e.target.closest(".feed-preset-btn");
+    if (presetBtn) {
+      const panel = presetBtn.closest(".feed-buy-panel");
+      const callId = panel.getAttribute("data-buy-panel");
+      const input = panel.querySelector('[data-amount-input="' + callId + '"]');
+      input.value = presetBtn.getAttribute("data-preset");
       panel.querySelectorAll(".feed-preset-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-    });
-  });
-  document.querySelectorAll(".feed-confirm-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const mint = btn.getAttribute("data-confirm-mint");
-      const panel = btn.closest(".feed-buy-panel");
-      const pool = panel.getAttribute("data-panel-pool");
-      const input = panel.querySelector('[data-amount-input="' + mint + '"]');
-      const statusEl = panel.querySelector('[data-status-mint="' + mint + '"]');
-      const amount = parseFloat(input.value);
-      if (!wallet) { connectWallet(); return; }
-      if (!amount || amount <= 0) { statusEl.textContent = "Enter an amount."; return; }
-      btn.disabled = true;
-      statusEl.textContent = "Building quote...";
-      try {
-        await executeFeedTrade(mint, pool, amount, statusEl);
-      } catch (err) {
-        console.error(err);
-        statusEl.textContent = "Error: " + err.message;
-      }
-      btn.disabled = false;
-    });
-  });
+      presetBtn.classList.add("active");
+      return;
+    }
+
+    const confirmBtn = e.target.closest("[data-confirm-id]");
+    if (confirmBtn) return handleFeedBuy(confirmBtn, list);
+  };
+}
+
+async function handleLike(btn) {
+  if (!wallet) { connectWallet(); return; }
+  const callId = btn.getAttribute("data-call-id");
+  const liked = btn.classList.contains("liked");
+  btn.disabled = true;
+  try {
+    if (liked) {
+      await supabase.from("likes").delete().eq("call_id", callId).eq("wallet", wallet);
+    } else {
+      await supabase.from("likes").insert({ call_id: callId, wallet });
+    }
+    const count = liked ? -1 : 1;
+    const current = parseInt(btn.textContent.replace("♥ ", "")) || 0;
+    btn.textContent = "♥ " + Math.max(0, current + count);
+    btn.classList.toggle("liked");
+  } catch (err) {
+    console.error("Like failed:", err);
+  }
+  btn.disabled = false;
+}
+
+async function handleRepost(btn) {
+  if (!wallet) { connectWallet(); return; }
+  const callId = btn.getAttribute("data-call-id");
+  const reposted = btn.classList.contains("reposted");
+  if (reposted) return;
+  btn.disabled = true;
+  try {
+    const { error } = await supabase.from("reposts").insert({ call_id: callId, reposter: wallet });
+    if (!error) {
+      const current = parseInt(btn.textContent.replace("🔁 ", "")) || 0;
+      btn.textContent = "🔁 " + (current + 1);
+      btn.classList.add("reposted");
+    }
+  } catch (err) {
+    console.error("Repost failed:", err);
+  }
+  btn.disabled = false;
+}
+
+async function handleComment(btn, list) {
+  if (!wallet) { connectWallet(); return; }
+  const callId = btn.getAttribute("data-comment-send");
+  const input = list.querySelector('[data-comment-input="' + callId + '"]');
+  const body = input.value.trim();
+  if (!body) return;
+  btn.disabled = true;
+  try {
+    const { error } = await supabase.from("comments").insert({ call_id: callId, commenter: wallet, body });
+    if (!error) {
+      const commentList = list.querySelector('[data-comment-list="' + callId + '"]');
+      commentList.innerHTML += '<div class="comment-row"><span class="comment-author">' + shortAddr(wallet) + '</span>' + escapeHtml(body) + '</div>';
+      input.value = "";
+      const toggleBtn = list.querySelector('.comment-toggle-btn[data-call-id="' + callId + '"]');
+      const current = parseInt(toggleBtn.textContent.replace("💬 ", "")) || 0;
+      toggleBtn.textContent = "💬 " + (current + 1);
+    }
+  } catch (err) {
+    console.error("Comment failed:", err);
+  }
+  btn.disabled = false;
+}
+
+async function handleFeedBuy(btn, list) {
+  const callId = btn.getAttribute("data-confirm-id");
+  const panel = btn.closest(".feed-buy-panel");
+  const card = btn.closest(".feed-card");
+  const mint = card.getAttribute("data-call-mint");
+  const pool = card.getAttribute("data-call-pool");
+  const input = panel.querySelector('[data-amount-input="' + callId + '"]');
+  const statusEl = panel.querySelector('[data-status-id="' + callId + '"]');
+  const amount = parseFloat(input.value);
+  if (!wallet) { connectWallet(); return; }
+  if (!amount || amount <= 0) { statusEl.textContent = "Enter an amount."; return; }
+  btn.disabled = true;
+  statusEl.textContent = "Building quote...";
+  try {
+    await executeFeedTrade(mint, pool, amount, statusEl);
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = "Error: " + err.message;
+  }
+  btn.disabled = false;
 }
 
 async function executeFeedTrade(mint, poolAddr, amountSol, statusEl) {
@@ -1355,11 +1490,14 @@ async function render() {
       if (currentTokenMc === null) { callBtn.textContent = "Still loading price..."; return; }
       callBtn.disabled = true;
       callBtn.textContent = "Calling...";
+      const captionInput = document.getElementById("call-caption-input");
+      const caption = captionInput ? captionInput.value.trim() : "";
       const { error } = await supabase.from("calls").insert({
         mint: activeToken.mint,
         caller: wallet,
         mc_at_call: currentTokenMc,
         network: NETWORK,
+        caption: caption || null,
       });
       if (error) {
         console.error("Call failed:", error);
