@@ -80,6 +80,13 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .feed-amount-input { flex: 1; background: var(--bg); border: 1px solid var(--card-border); color: var(--text); border-radius: 8px; padding: 8px; font-size: 13px; }
 .feed-confirm-btn { background: var(--accent); color: var(--accent-dark); border: none; border-radius: 8px; padding: 8px 14px; font-weight: 700; font-size: 13px; cursor: pointer; }
 .feed-status { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+.post-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.post-avatar { width: 38px; height: 38px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent-dark); }
+.post-caller-name { font-weight: 800; font-size: 14px; }
+.post-caller-addr { font-size: 11px; color: var(--text-dim); }
+.post-token-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.post-token-row .token-thumb { width: 30px; height: 30px; border-radius: 8px; }
+.post-buy-btn { background: var(--accent); color: var(--accent-dark); border: none; border-radius: 10px; padding: 7px 16px; font-weight: 800; font-size: 13px; cursor: pointer; }
 .post-caption { font-size: 14px; margin: 8px 0; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
 .call-caption-input { width: 100%; background: var(--bg); border: 1px solid var(--card-border); color: var(--text); border-radius: 10px; padding: 10px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 60px; margin-bottom: 10px; box-sizing: border-box; }
 .post-action-row { display: flex; gap: 4px; margin-top: 8px; border-top: 1px solid var(--card-border); padding-top: 8px; }
@@ -1110,21 +1117,27 @@ async function loadFeedData() {
       '<div class="comment-row"><span class="comment-author">' + shortAddr(cm.commenter) + '</span>' + escapeHtml(cm.body) + '</div>'
     ).join("");
 
+    const callerName = generateDisplayName(c.caller);
+    const callerAvatar = generateAvatarSvg(c.caller);
     rows.push(
       '<div class="feed-card" data-call-id="' + c.id + '" data-call-mint="' + c.mint + '" data-call-pool="' + launch.pool + '">' +
-      '<div class="feed-card-top">' +
-      '<div class="token-thumb" style="width:44px;height:44px;">' + (launch.image_uri ? '<img src="' + launch.image_uri + '" />' : (launch.symbol ? launch.symbol[0] : "?")) + '</div>' +
+      '<div class="post-header">' +
+      '<div class="post-avatar">' + callerAvatar + '</div>' +
       '<div style="flex:1;min-width:0;">' +
-      '<div class="token-card-title-row"><span class="token-card-name">' + launch.name + '</span><span class="token-symbol-badge">' + launch.symbol + '</span></div>' +
-      '<div class="feed-caller">Called by ' + shortAddr(c.caller) + '</div>' +
+      '<div class="post-caller-name">' + callerName + '</div>' +
+      '<div class="post-caller-addr">' + shortAddr(c.caller) + '</div>' +
       '</div>' + multiplierHtml +
+      '</div>' +
+      '<div class="post-token-row">' +
+      '<div class="token-thumb">' + (launch.image_uri ? '<img src="' + launch.image_uri + '" />' : (launch.symbol ? launch.symbol[0] : "?")) + '</div>' +
+      '<span class="token-card-name">' + launch.name + '</span><span class="token-symbol-badge">' + launch.symbol + '</span>' +
       '</div>' +
       (c.caption ? '<div class="post-caption">' + escapeHtml(c.caption) + '</div>' : '') +
       '<div class="post-action-row">' +
       '<button class="post-action-btn like-btn ' + (iLiked ? "liked" : "") + '" data-call-id="' + c.id + '">♥ ' + callLikes.length + '</button>' +
       '<button class="post-action-btn comment-toggle-btn" data-call-id="' + c.id + '">💬 ' + callComments.length + '</button>' +
       '<button class="post-action-btn repost-btn ' + (iReposted ? "reposted" : "") + '" data-call-id="' + c.id + '">🔁 ' + callReposts.length + '</button>' +
-      '<button class="post-action-btn buy-toggle-btn" data-call-id="' + c.id + '">Buy</button>' +
+      '<button class="post-buy-btn buy-toggle-btn" data-call-id="' + c.id + '">Buy</button>' +
       '</div>' +
       '<div class="comment-section" data-comment-section="' + c.id + '" style="display:none;">' +
       '<div class="comment-list" data-comment-list="' + c.id + '">' + commentsHtml + '</div>' +
