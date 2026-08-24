@@ -58,6 +58,14 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .token-avatar { width: 46px; height: 46px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-dark), #1a2e22); display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--accent); flex-shrink: 0; overflow: hidden; }
 .token-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .token-info { flex: 1; min-width: 0; }
+.bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto; display: flex; background: var(--card); border-top: 1px solid var(--card-border); padding: 10px 8px calc(10px + env(safe-area-inset-bottom)); z-index: 50; }
+.nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: none; color: var(--text-dim); font-size: 11px; font-weight: 700; cursor: pointer; padding: 4px; }
+.nav-item svg { stroke: var(--text-dim); }
+.nav-item.active { color: var(--accent); }
+.nav-item.active svg { stroke: var(--accent); }
+.token-thumb svg { width: 100%; height: 100%; }
+.profile-name { font-weight: 800; font-size: 17px; }
+.profile-addr-row { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .token-name { font-weight: 700; font-size: 15px; }
 .token-sub { color: var(--text-dim); font-size: 13px; }
 .empty-state { text-align: center; color: var(--text-dim); padding: 60px 20px; font-size: 14px; }
@@ -138,6 +146,16 @@ const connection = new Connection(RPC_URL, "confirmed");
 const cpAmm = new CpAmm(connection);
 const TOKEN_DECIMALS = 6;
 const SOL_LOGO_SVG = '<svg viewBox="0 0 32 32" width="100%" height="100%"><defs><linearGradient id="solGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><g fill="url(#solGrad)"><path d="M5 21.5c.3-.3.7-.5 1.1-.5h19.8c.7 0 1 .8.6 1.3l-3.9 3.9c-.3.3-.7.5-1.1.5H1.7c-.7 0-1-.8-.6-1.3l3.9-3.9z"/><path d="M5 5.3c.3-.3.7-.5 1.1-.5h19.8c.7 0 1 .8.6 1.3l-3.9 3.9c-.3.3-.7.5-1.1.5H1.7c-.7 0-1-.8-.6-1.3L5 5.3z"/><path d="M23.5 13.3c-.3-.3-.7-.5-1.1-.5H2.6c-.7 0-1 .8-.6 1.3l3.9 3.9c.3.3.7.5 1.1.5h19.8c.7 0 1-.8.6-1.3l-3.9-3.9z"/></g></svg>';
+
+function generateDisplayName(address) {
+  const adjectives = ["Cosmic", "Solar", "Neon", "Rapid", "Silent", "Golden", "Lunar", "Turbo", "Crypto", "Astro"];
+  const nouns = ["Whale", "Falcon", "Comet", "Nomad", "Ranger", "Phoenix", "Wolf", "Nova", "Rocket", "Voyager"];
+  let hash = 0;
+  for (let i = 0; i < address.length; i++) hash = (hash * 31 + address.charCodeAt(i)) >>> 0;
+  const adj = adjectives[hash % adjectives.length];
+  const noun = nouns[(hash >> 4) % nouns.length];
+  return adj + " " + noun;
+}
 const BASE_FEE_BPS = 1000;
 
 const SOL_USD_FEED_ID = "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
@@ -780,19 +798,21 @@ function renderProfile() {
     return '<h1>Profile</h1><div class="card empty-state">Connect your wallet to view your profile.' +
       '<div style="margin-top:16px;"><button class="btn btn-primary" id="profile-connect-btn">Connect Wallet</button></div></div>';
   }
+  const displayName = generateDisplayName(wallet);
   return '<h1>Profile</h1>' +
     '<div class="card" style="display:flex;align-items:center;gap:12px;">' +
     '<div class="token-avatar" style="width:46px;height:46px;font-size:16px;">' + wallet.slice(0, 2) + '</div>' +
     '<div style="flex:1;min-width:0;">' +
-    '<div style="display:flex;align-items:center;gap:8px;">' +
-    '<span style="font-weight:700;" id="profile-address">' + shortAddr(wallet) + '</span>' +
-    '<button id="profile-copy-btn" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:2px;" title="Copy address"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>' +
+    '<div class="profile-name">' + displayName + '</div>' +
+    '<div class="profile-addr-row">' +
+    '<span class="token-sub" id="profile-address">' + shortAddr(wallet) + '</span>' +
+    '<button id="profile-copy-btn" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:2px;display:flex;" title="Copy address"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>' +
     '</div>' +
-    '<div class="token-sub">' + (walletMode === "local" ? "In-app wallet" : "Phantom") + '</div>' +
+    '<div class="token-sub" style="font-size:11px;margin-top:2px;">' + (walletMode === "local" ? "In-app wallet" : "Phantom") + '</div>' +
     '</div></div>' +
     '<div class="card balance-hero"><div class="balance-amount" id="profile-balance-usd">Loading...</div><div class="balance-sub" id="profile-balance-sol">—</div></div>' +
     '<div class="section-label">TOKEN BALANCES</div>' +
-    '<div class="card" id="profile-holdings"><div class="empty-state">Loading...</div></div>' +
+    '<div class="token-list" id="profile-holdings"><div class="card empty-state">Loading...</div></div>' +
     '<div class="section-label">STATS</div>' +
     '<div class="card"><div style="display:flex;justify-content:space-between;">' +
     '<div><div class="token-sub">Coins Created</div><div style="font-weight:700;" id="profile-launch-count">...</div></div>' +
@@ -805,7 +825,7 @@ function renderProfile() {
     'Overall profit/loss isn\'t built yet — it needs a proper trade-history and cost-basis system, coming as its own feature.' +
     '</div>' +
     '<div class="section-label">MY LAUNCHES</div>' +
-    '<div class="card" id="profile-launches"><div class="empty-state">Loading...</div></div>' +
+    '<div class="token-list" id="profile-launches"><div class="card empty-state">Loading...</div></div>' +
     '<div class="section-label">MY CALLS</div>' +
     '<div class="card" id="profile-calls"><div class="empty-state">Loading...</div></div>';
 }
@@ -841,9 +861,10 @@ async function loadProfileData() {
     try {
       const tokenAccounts = await connection.getParsedTokenAccountsByOwner(new PublicKey(wallet), { programId: TOKEN_PROGRAM_ID });
       const rows = [
-        '<div class="holding-row"><div class="holding-icon">' + SOL_LOGO_SVG + '</div>' +
-        '<div class="holding-info"><div class="holding-name">SOL</div><div class="holding-sub">Solana</div></div>' +
-        '<div class="holding-value"><div class="holding-amount">' + solBalance.toFixed(4) + '</div><div class="holding-usd">$' + (solBalance * solPriceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div></div>'
+        '<div class="token-row"><div class="token-thumb">' + SOL_LOGO_SVG + '</div>' +
+        '<div class="token-card-body"><div class="token-card-title-row"><span class="token-card-name">Solana</span><span class="token-symbol-badge">SOL</span></div>' +
+        '<div class="token-card-stats"><div class="stat-block"><div class="stat-label">Balance</div><div class="stat-value">' + solBalance.toFixed(4) + '</div></div>' +
+        '<div class="stat-block"><div class="stat-label">Value</div><div class="stat-value">$' + (solBalance * solPriceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div></div></div></div>'
       ];
 
       for (const acc of tokenAccounts.value) {
@@ -855,17 +876,18 @@ async function loadProfileData() {
         if (registryEntry && registryEntry.symbol === "DFNTEST") continue;
         const name = registryEntry ? registryEntry.name : shortAddr(mint);
         const symbol = registryEntry ? registryEntry.symbol : "";
-        const iconHtml = registryEntry && registryEntry.image_uri
+        const thumbHtml = registryEntry && registryEntry.image_uri
           ? '<img src="' + registryEntry.image_uri + '" />'
           : (symbol ? symbol[0] : "?");
         rows.push(
-          '<div class="holding-row"' + (registryEntry ? ' data-mint="' + mint + '" style="cursor:pointer;"' : '') + '><div class="holding-icon">' + iconHtml + '</div>' +
-          '<div class="holding-info"><div class="holding-name">' + name + '</div><div class="holding-sub">' + symbol + '</div></div>' +
-          '<div class="holding-value"><div class="holding-amount">' + amount.toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div></div>'
+          '<div class="token-row"' + (registryEntry ? ' data-mint="' + mint + '"' : '') + '>' +
+          '<div class="token-thumb">' + thumbHtml + '</div>' +
+          '<div class="token-card-body"><div class="token-card-title-row"><span class="token-card-name">' + name + '</span><span class="token-symbol-badge">' + symbol + '</span></div>' +
+          '<div class="token-card-stats"><div class="stat-block"><div class="stat-label">Balance</div><div class="stat-value">' + amount.toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div></div></div></div>'
         );
       }
       holdingsEl.innerHTML = rows.join("");
-      holdingsEl.querySelectorAll(".holding-row[data-mint]").forEach((row) => {
+      holdingsEl.querySelectorAll(".token-row[data-mint]").forEach((row) => {
         row.addEventListener("click", () => {
           const mint = row.getAttribute("data-mint");
           const launch = launches.find((l) => l.mint === mint);
@@ -874,7 +896,7 @@ async function loadProfileData() {
       });
     } catch (err) {
       console.error("Failed to load token holdings:", err);
-      holdingsEl.innerHTML = '<div class="empty-state">Couldn\'t load holdings.</div>';
+      holdingsEl.innerHTML = '<div class="card empty-state">Couldn\'t load holdings.</div>';
     }
   }
 
@@ -883,9 +905,13 @@ async function loadProfileData() {
   if (countEl) countEl.textContent = mine.length;
   if (el) {
     el.innerHTML = mine.length
-      ? mine.map((l) => '<div class="holding-row" data-mint="' + l.mint + '" style="cursor:pointer;"><div class="token-sub">' + l.name + '</div><div class="token-sub">' + l.symbol + '</div></div>').join("")
-      : '<div class="empty-state">No launches yet from this wallet.</div>';
-    el.querySelectorAll(".holding-row[data-mint]").forEach((row) => {
+      ? mine.map((l) =>
+          '<div class="token-row" data-mint="' + l.mint + '">' +
+          '<div class="token-thumb">' + (l.image_uri ? '<img src="' + l.image_uri + '" />' : (l.symbol ? l.symbol[0] : "?")) + '</div>' +
+          '<div class="token-card-body"><div class="token-card-title-row"><span class="token-card-name">' + l.name + '</span><span class="token-symbol-badge">' + l.symbol + '</span></div></div></div>'
+        ).join("")
+      : '<div class="card empty-state">No launches yet from this wallet.</div>';
+    el.querySelectorAll(".token-row[data-mint]").forEach((row) => {
       row.addEventListener("click", () => {
         const mint = row.getAttribute("data-mint");
         const launch = mine.find((l) => l.mint === mint);
