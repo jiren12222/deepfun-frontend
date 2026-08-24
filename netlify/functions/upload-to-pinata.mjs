@@ -21,6 +21,9 @@ export default async (req) => {
     formData.append("file", blob, fileName);
     formData.append("network", "public");
 
+    console.log("DEBUG: PINATA_JWT length =", (process.env.PINATA_JWT || "").length);
+    console.log("DEBUG: PINATA_JWT first 20 chars =", (process.env.PINATA_JWT || "MISSING").slice(0, 20));
+
     const pinataRes = await fetch("https://uploads.pinata.cloud/v3/files", {
       method: "POST",
       headers: { Authorization: `Bearer ${process.env.PINATA_JWT}` },
