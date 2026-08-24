@@ -69,7 +69,7 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .token-name { font-weight: 700; font-size: 15px; }
 .token-sub { color: var(--text-dim); font-size: 13px; }
 .empty-state { text-align: center; color: var(--text-dim); padding: 60px 20px; font-size: 14px; }
-.card { background: var(--card); border: 1px solid var(--card-border); border-radius: 18px; padding: 20px; margin-bottom: 14px; }
+.card { background: var(--card); border: 1px solid var(--card-border); border-radius: 18px; padding: 10px 14px; margin-bottom: 7px; }
 label { font-size: 13px; font-weight: 600; color: var(--text-dim); display: block; margin-bottom: 8px; margin-top: 16px; }
 label:first-child { margin-top: 0; }
 input, textarea { width: 100%; background: var(--bg); border: 1.5px solid var(--card-border); border-radius: 12px; padding: 13px 15px; color: var(--text); font-size: 15px; font-family: inherit; outline: none; }
@@ -146,6 +146,24 @@ const connection = new Connection(RPC_URL, "confirmed");
 const cpAmm = new CpAmm(connection);
 const TOKEN_DECIMALS = 6;
 const SOL_LOGO_SVG = '<svg viewBox="0 0 32 32" width="100%" height="100%"><defs><linearGradient id="solGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><g fill="url(#solGrad)"><path d="M5 21.5c.3-.3.7-.5 1.1-.5h19.8c.7 0 1 .8.6 1.3l-3.9 3.9c-.3.3-.7.5-1.1.5H1.7c-.7 0-1-.8-.6-1.3l3.9-3.9z"/><path d="M5 5.3c.3-.3.7-.5 1.1-.5h19.8c.7 0 1 .8.6 1.3l-3.9 3.9c-.3.3-.7.5-1.1.5H1.7c-.7 0-1-.8-.6-1.3L5 5.3z"/><path d="M23.5 13.3c-.3-.3-.7-.5-1.1-.5H2.6c-.7 0-1 .8-.6 1.3l3.9 3.9c.3.3.7.5 1.1.5h19.8c.7 0 1-.8.6-1.3l-3.9-3.9z"/></g></svg>';
+
+function generateAvatarSvg(address) {
+  const palettes = [
+    ["#9945FF", "#14F195"], ["#FF5C6C", "#FFB86C"], ["#3DFF9A", "#00C2FF"],
+    ["#FF61D8", "#7C4DFF"], ["#FFD23D", "#FF7A3D"], ["#38BDF8", "#818CF8"]
+  ];
+  let hash = 0;
+  for (let i = 0; i < address.length; i++) hash = (hash * 31 + address.charCodeAt(i)) >>> 0;
+  const [c1, c2] = palettes[hash % palettes.length];
+  const shapeSeed = (hash >> 8) % 4;
+  const shapes = [
+    '<circle cx="16" cy="12" r="7"/><circle cx="10" cy="22" r="6"/><circle cx="24" cy="22" r="5"/>',
+    '<rect x="4" y="4" width="12" height="12" rx="3"/><rect x="18" y="10" width="10" height="10" rx="3"/><rect x="8" y="20" width="14" height="8" rx="3"/>',
+    '<polygon points="16,3 29,26 3,26"/>',
+    '<circle cx="16" cy="16" r="13"/>'
+  ];
+  return '<svg viewBox="0 0 32 32" width="100%" height="100%"><defs><linearGradient id="av' + hash + '" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + c1 + '"/><stop offset="1" stop-color="' + c2 + '"/></linearGradient></defs><g fill="url(#av' + hash + ')">' + shapes[shapeSeed] + '</g></svg>';
+}
 
 function generateDisplayName(address) {
   const adjectives = ["Cosmic", "Solar", "Neon", "Rapid", "Silent", "Golden", "Lunar", "Turbo", "Crypto", "Astro"];
@@ -801,7 +819,7 @@ function renderProfile() {
   const displayName = generateDisplayName(wallet);
   return '<h1>Profile</h1>' +
     '<div class="card" style="display:flex;align-items:center;gap:12px;">' +
-    '<div class="token-avatar" style="width:46px;height:46px;font-size:16px;">' + wallet.slice(0, 2) + '</div>' +
+    '<div class="token-avatar" style="width:46px;height:46px;overflow:hidden;">' + generateAvatarSvg(wallet) + '</div>' +
     '<div style="flex:1;min-width:0;">' +
     '<div class="profile-name">' + displayName + '</div>' +
     '<div class="profile-addr-row">' +
@@ -879,11 +897,22 @@ async function loadProfileData() {
         const thumbHtml = registryEntry && registryEntry.image_uri
           ? '<img src="' + registryEntry.image_uri + '" />'
           : (symbol ? symbol[0] : "?");
+        let valueHtml = '';
+        if (registryEntry && registryEntry.pool) {
+          try {
+            const mc = await getLiveMc(mint, registryEntry.pool);
+            const pricePerToken = mc / 1000000000;
+            const usdValue = amount * pricePerToken;
+            valueHtml = '<div class="stat-block"><div class="stat-label">Value</div><div class="stat-value">$' + usdValue.toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div>';
+          } catch (err) {
+            console.error("Failed to fetch live value for", symbol, err);
+          }
+        }
         rows.push(
           '<div class="token-row"' + (registryEntry ? ' data-mint="' + mint + '"' : '') + '>' +
           '<div class="token-thumb">' + thumbHtml + '</div>' +
           '<div class="token-card-body"><div class="token-card-title-row"><span class="token-card-name">' + name + '</span><span class="token-symbol-badge">' + symbol + '</span></div>' +
-          '<div class="token-card-stats"><div class="stat-block"><div class="stat-label">Balance</div><div class="stat-value">' + amount.toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div></div></div></div>'
+          '<div class="token-card-stats"><div class="stat-block"><div class="stat-label">Balance</div><div class="stat-value">' + amount.toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div>' + valueHtml + '</div></div></div>'
         );
       }
       holdingsEl.innerHTML = rows.join("");
