@@ -33,7 +33,13 @@ export default async (req) => {
     if (!pinataRes.ok) {
       const errText = await pinataRes.text();
       console.error("Pinata upload failed:", errText);
-      return new Response(JSON.stringify({ error: "Pinata upload failed", detail: errText }), { status: 502 });
+      return new Response(JSON.stringify({
+        error: "Pinata upload failed",
+        detail: errText,
+        debug_jwt_length: (process.env.PINATA_JWT || "").length,
+        debug_jwt_prefix: (process.env.PINATA_JWT || "MISSING").slice(0, 20),
+        debug_gateway: process.env.PINATA_GATEWAY || "MISSING",
+      }), { status: 502 });
     }
 
     const result = await pinataRes.json();
