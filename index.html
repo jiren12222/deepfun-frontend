@@ -69,7 +69,7 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .token-name { font-weight: 700; font-size: 15px; }
 .token-sub { color: var(--text-dim); font-size: 13px; }
 .empty-state { text-align: center; color: var(--text-dim); padding: 60px 20px; font-size: 14px; }
-.card { background: var(--card); border: 1px solid var(--card-border); border-radius: 18px; padding: 10px 14px; margin-bottom: 7px; }
+.card { background: var(--card); border: 1px solid var(--card-border); border-radius: 18px; padding: 5px 7px; margin-bottom: 4px; }
 label { font-size: 13px; font-weight: 600; color: var(--text-dim); display: block; margin-bottom: 8px; margin-top: 16px; }
 label:first-child { margin-top: 0; }
 input, textarea { width: 100%; background: var(--bg); border: 1.5px solid var(--card-border); border-radius: 12px; padding: 13px 15px; color: var(--text); font-size: 15px; font-family: inherit; outline: none; }
@@ -97,7 +97,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .tab-row { display: flex; background: var(--card); border: 1px solid var(--card-border); border-radius: 14px; padding: 4px; margin-bottom: 16px; }
 .tab-btn { flex: 1; background: none; border: none; color: var(--text-dim); font-weight: 700; padding: 10px; border-radius: 10px; cursor: pointer; }
 .tab-btn.active { background: var(--accent); color: var(--accent-dark); }
-.balance-hero { text-align: center; padding: 12px 0; }
+.balance-hero { text-align: center; padding: 6px 0; }
 .balance-amount { font-size: 38px; font-weight: 800; letter-spacing: -1px; }
 .balance-sub { color: var(--text-dim); font-size: 14px; margin-top: 4px; }
 .holding-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--card-border); }
@@ -934,11 +934,22 @@ async function loadProfileData() {
   if (countEl) countEl.textContent = mine.length;
   if (el) {
     el.innerHTML = mine.length
-      ? mine.map((l) =>
-          '<div class="token-row" data-mint="' + l.mint + '">' +
-          '<div class="token-thumb">' + (l.image_uri ? '<img src="' + l.image_uri + '" />' : (l.symbol ? l.symbol[0] : "?")) + '</div>' +
-          '<div class="token-card-body"><div class="token-card-title-row"><span class="token-card-name">' + l.name + '</span><span class="token-symbol-badge">' + l.symbol + '</span></div></div></div>'
-        ).join("")
+      ? mine.map((l) => {
+          const stat = homeTokenStats[l.mint];
+          const statsRow = stat
+            ? '<div class="token-card-stats">' +
+              '<div class="stat-block"><div class="stat-label">TXNs</div><div class="stat-value">' + (stat.txnCount ?? "...") + '</div></div>' +
+              '<div class="stat-block"><div class="stat-label">MC</div><div class="stat-value">$' + stat.mcUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div></div>' +
+              '<div class="stat-block"><div class="stat-label">Liquidity</div><div class="stat-value">$' + stat.liquidityUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div></div>' +
+              '</div>'
+            : '<div class="token-card-stats" id="stat-' + l.mint + '"><div class="stat-block"><div class="stat-value token-sub">Loading...</div></div></div>';
+          return '<div class="token-row" data-mint="' + l.mint + '">' +
+            '<div class="token-thumb">' + (l.image_uri ? '<img src="' + l.image_uri + '" />' : (l.symbol ? l.symbol[0] : "?")) + '</div>' +
+            '<div class="token-card-body">' +
+            '<div class="token-card-title-row"><span class="token-card-name">' + l.name + '</span><span class="token-symbol-badge">' + l.symbol + '</span></div>' +
+            statsRow +
+            '</div></div>';
+        }).join("")
       : '<div class="card empty-state">No launches yet from this wallet.</div>';
     el.querySelectorAll(".token-row[data-mint]").forEach((row) => {
       row.addEventListener("click", () => {
@@ -947,6 +958,34 @@ async function loadProfileData() {
         if (launch) { activeToken = launch; currentPage = "detail"; render(); }
       });
     });
+    for (const l of mine) {
+      if (homeTokenStats[l.mint]) continue;
+      try {
+        const pool = new PublicKey(l.pool);
+        const poolState = await cpAmm.fetchPoolState(pool);
+        const solPriceUsd = await fetchSolPriceUsd();
+        const priceInSol = getPriceFromSqrtPrice(poolState.sqrtPrice, TOKEN_DECIMALS, 9);
+        const priceUsd = Number(priceInSol) * solPriceUsd;
+        const mcUsd = priceUsd * 1000000000;
+        const pooledToken = Number(poolState.tokenAAmount) / (10 ** TOKEN_DECIMALS);
+        const pooledSol = Number(poolState.tokenBAmount) / 1e9;
+        const liquidityUsd = (pooledToken * priceUsd) + (pooledSol * solPriceUsd);
+        let txnCount = "0";
+        try {
+          const sigs = await connection.getSignaturesForAddress(pool, { limit: 50 });
+          txnCount = sigs.length >= 50 ? "50+" : String(sigs.length);
+        } catch (e) {}
+        homeTokenStats[l.mint] = { mcUsd, liquidityUsd, txnCount };
+        const statEl = document.getElementById("stat-" + l.mint);
+        if (statEl) {
+          statEl.innerHTML = '<div class="stat-block"><div class="stat-label">TXNs</div><div class="stat-value">' + txnCount + '</div></div>' +
+            '<div class="stat-block"><div class="stat-label">MC</div><div class="stat-value">$' + mcUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div></div>' +
+            '<div class="stat-block"><div class="stat-label">Liquidity</div><div class="stat-value">$' + liquidityUsd.toLocaleString(undefined, {maximumFractionDigits:0}) + '</div></div>';
+        }
+      } catch (err) {
+        console.error("Failed to load stats for launch", l.mint, err);
+      }
+    }
   }
 
   const { data: calls, error: callsErr } = await supabase.from("calls").select("*").eq("caller", wallet);
