@@ -8,7 +8,7 @@ echo "================================"
 # Update system packages
 echo "Updating system packages..."
 sudo apt-get update
-sudo apt-get install -y build-essential pkg-config libssl-dev
+sudo apt-get install -y build-essential pkg-config libssl-dev curl
 
 # Install Rust (if not already installed)
 echo ""
@@ -20,24 +20,39 @@ else
     echo "Rust is already installed"
 fi
 
+# Add Rust to PATH for this session
+export PATH="$HOME/.cargo/bin:$PATH"
+
 # Install Solana CLI from Anza's installer
 echo ""
 echo "Installing Solana CLI from Anza..."
-sh -c "$(curl -sSfL https://release.anza.dev/solana-install-init.sh)"
-export PATH="/home/vscode/.local/share/solana/install/active_release/bin:$PATH"
+if ! command -v solana &> /dev/null; then
+    sh -c "$(curl -sSfL https://release.anza.dev/solana-install-init.sh)"
+else
+    echo "Solana CLI is already installed"
+fi
+
+# Add Solana to PATH
+export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 
 # Install Node.js and npm (required for Anchor)
 echo ""
 echo "Installing Node.js and npm..."
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+if ! command -v node &> /dev/null; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+else
+    echo "Node.js is already installed"
+fi
 
 # Install Anchor CLI via avm
 echo ""
 echo "Installing Anchor CLI via avm..."
-cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+if ! command -v avm &> /dev/null; then
+    cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+fi
 
-# Initialize avm and install latest Anchor
+# Use latest Anchor version
 avm install latest
 avm use latest
 
