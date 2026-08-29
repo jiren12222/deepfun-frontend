@@ -83,6 +83,29 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .trench-buy-btn { background: var(--accent); color: var(--accent-dark); border: none; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .ticker-thumb { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
 .ticker-thumb-fallback { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, var(--sol-purple), var(--sol-green)); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 800; color: #0A0A0A; }
+.portfolio-tabs { display: flex; gap: 6px; margin: 14px 0; border-bottom: 1px solid var(--card-border); }
+.portfolio-tab { flex: 1; text-align: center; padding: 10px 4px; font-size: 12px; font-weight: 700; color: var(--text-dim); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; }
+.portfolio-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.wallet-summary-row { display: flex; justify-content: space-between; align-items: center; }
+.refresh-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 4px; display: flex; }
+.networth-value { font-size: 30px; font-weight: 800; margin: 6px 0 12px; }
+.metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.metric-box { background: var(--bg); border-radius: 12px; padding: 10px; }
+.metric-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; }
+.metric-value { font-size: 15px; font-weight: 700; margin-top: 3px; }
+.rewards-row { display: flex; justify-content: space-between; align-items: center; }
+.rewards-amount { font-size: 22px; font-weight: 800; }
+.rewards-sub { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+.claim-btn { background: var(--accent); color: var(--accent-dark); border: none; border-radius: 10px; padding: 10px 18px; font-weight: 800; font-size: 13px; cursor: pointer; }
+.claim-btn:disabled { background: var(--card-border); color: var(--text-dim); cursor: not-allowed; }
+.allocation-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; margin: 10px 0 8px; }
+.allocation-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; }
+.allocation-legend-item { display: flex; align-items: center; gap: 5px; }
+.allocation-dot { width: 8px; height: 8px; border-radius: 50%; }
+.tx-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--card-border); font-size: 12px; }
+.tx-row:last-child { border-bottom: none; }
+.tx-sig { font-family: monospace; color: var(--text-dim); }
+.tx-time { color: var(--text-dim); }
 .token-avatar { width: 46px; height: 46px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-dark), #1a2e22); display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--accent); flex-shrink: 0; overflow: hidden; }
 .token-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .token-info { flex: 1; min-width: 0; }
@@ -297,6 +320,7 @@ let cachedHomeLaunches = [];
 let feedCalls = [];
 let feedRefreshTimer = null;
 let feedOpenBuyMint = null;
+let profilePortfolioTab = "assets";
 let profileDisplayNames = {};
 let showWalletGate = true;
 let currentTokenMc = null;
@@ -909,12 +933,13 @@ function renderWallet() {
 
 function renderProfile() {
   if (!wallet) {
-    return '<h1>Profile</h1><div class="card empty-state">Connect your wallet to view your profile.' +
+    return '<h1>Portfolio</h1><div class="card empty-state">Connect your wallet to view your portfolio.' +
       '<div style="margin-top:16px;"><button class="btn btn-primary" id="profile-connect-btn">Connect Wallet</button></div></div>';
   }
   const savedName = profileDisplayNames[wallet];
   const displayName = savedName || generateDisplayName(wallet);
-  return '<h1>Profile</h1>' +
+  const tab = profilePortfolioTab || "assets";
+  return '<h1>Portfolio</h1>' +
     '<div class="card" style="display:flex;align-items:center;gap:12px;">' +
     '<div class="token-avatar" style="width:46px;height:46px;overflow:hidden;">' + generateAvatarSvg(wallet) + '</div>' +
     '<div style="flex:1;min-width:0;">' +
@@ -927,10 +952,40 @@ function renderProfile() {
     '<button id="profile-copy-btn" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:2px;display:flex;" title="Copy address"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>' +
     '</div>' +
     '<div class="token-sub" style="font-size:11px;margin-top:2px;">' + (walletMode === "local" ? "In-app wallet" : "Phantom") + '</div>' +
+    '</div>' +
+    '<button class="refresh-btn" id="portfolio-refresh-btn" title="Refresh"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>' +
+    '</div>' +
+    '<div class="card">' +
+    '<div class="token-sub">Net worth</div>' +
+    '<div class="networth-value" id="portfolio-networth">Loading...</div>' +
+    '<div class="metrics-grid">' +
+    '<div class="metric-box"><div class="metric-label">SOL Balance</div><div class="metric-value" id="portfolio-sol-value">—</div></div>' +
+    '<div class="metric-box"><div class="metric-label">Token Balance</div><div class="metric-value" id="portfolio-token-value">—</div></div>' +
+    '<div class="metric-box"><div class="metric-label">Realized PnL</div><div class="metric-value">—</div></div>' +
+    '<div class="metric-box"><div class="metric-label">Unrealized PnL</div><div class="metric-value">—</div></div>' +
     '</div></div>' +
-    '<div class="card balance-hero"><div class="balance-amount" id="profile-balance-usd">Loading...</div><div class="balance-sub" id="profile-balance-sol">—</div></div>' +
-    '<div class="section-label">TOKEN BALANCES</div>' +
-    '<div class="token-list" id="profile-holdings"><div class="card empty-state">Loading...</div></div>' +
+    '<div class="card">' +
+    '<div class="rewards-row">' +
+    '<div><div class="token-sub">Claimable Rewards</div><div class="rewards-amount" id="portfolio-rewards-amount">$0.00</div><div class="rewards-sub">From creator fee share</div></div>' +
+    '<button class="claim-btn" id="portfolio-claim-btn" disabled>Claim</button>' +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text-dim);margin-top:10px;">Creator reward payouts are being finalized on the backend — this will populate automatically once live.</div>' +
+    '</div>' +
+    '<div class="card">' +
+    '<div class="token-sub" style="margin-bottom:4px;">Asset allocation</div>' +
+    '<div class="allocation-bar" id="portfolio-allocation-bar"></div>' +
+    '<div class="allocation-legend" id="portfolio-allocation-legend"></div>' +
+    '</div>' +
+    '<div class="portfolio-tabs">' +
+    '<button class="portfolio-tab ' + (tab === "assets" ? "active" : "") + '" data-ptab="assets">Assets</button>' +
+    '<button class="portfolio-tab ' + (tab === "history" ? "active" : "") + '" data-ptab="history">Transaction History</button>' +
+    '<button class="portfolio-tab ' + (tab === "pnl" ? "active" : "") + '" data-ptab="pnl">PnL Calendar</button>' +
+    '</div>' +
+    '<div id="portfolio-tab-content">' +
+    (tab === "assets" ? '<div class="token-list" id="profile-holdings"><div class="card empty-state">Loading...</div></div>' :
+     tab === "history" ? '<div class="card" id="profile-tx-history"><div class="empty-state">Loading...</div></div>' :
+     '<div class="card" style="font-size:12px;color:var(--text-dim);">PnL Calendar isn\'t built yet — it needs a proper trade-history and cost-basis system, coming as its own feature.</div>') +
+    '</div>' +
     '<div class="section-label">STATS</div>' +
     '<div class="card"><div style="display:flex;justify-content:space-between;">' +
     '<div><div class="token-sub">Coins Created</div><div style="font-weight:700;" id="profile-launch-count">...</div></div>' +
@@ -939,9 +994,6 @@ function renderProfile() {
     '<div class="card"><div style="display:flex;justify-content:space-between;">' +
     '<div><div class="token-sub">Highest Call</div><div style="font-weight:700;" id="profile-highest-call">...</div></div>' +
     '</div></div>' +
-    '<div class="card" style="font-size:12px;color:var(--text-dim);">' +
-    'Overall profit/loss isn\'t built yet — it needs a proper trade-history and cost-basis system, coming as its own feature.' +
-    '</div>' +
     '<div class="section-label">MY LAUNCHES</div>' +
     '<div class="token-list" id="profile-launches"><div class="card empty-state">Loading...</div></div>' +
     '<div class="section-label">MY CALLS</div>' +
@@ -951,6 +1003,23 @@ function renderProfile() {
 async function loadProfileData() {
   const el = document.getElementById("profile-launches");
   if (!el) return;
+
+  document.querySelectorAll(".portfolio-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      profilePortfolioTab = btn.getAttribute("data-ptab");
+      render();
+    });
+  });
+
+  const refreshBtn = document.getElementById("portfolio-refresh-btn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => {
+      refreshBtn.style.transition = "transform 0.4s ease";
+      refreshBtn.style.transform = "rotate(360deg)";
+      loadProfileData();
+      setTimeout(() => { refreshBtn.style.transform = "rotate(0deg)"; }, 400);
+    });
+  }
 
   const editNameBtn = document.getElementById("profile-edit-name-btn");
   const nameDisplay = document.getElementById("profile-name-display");
@@ -998,11 +1067,12 @@ async function loadProfileData() {
   ]);
   const solBalance = balanceLamports / 1e9;
 
-  const usdEl = document.getElementById("profile-balance-usd");
-  const solEl = document.getElementById("profile-balance-sol");
-  if (usdEl) usdEl.textContent = "$" + (solBalance * solPriceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 });
-  if (solEl) solEl.textContent = "≈ " + solBalance.toFixed(4) + " SOL";
+  const solUsdValue = solBalance * solPriceUsd;
+  const solValueEl = document.getElementById("portfolio-sol-value");
+  if (solValueEl) solValueEl.textContent = "$" + solUsdValue.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
+  let totalTokenUsdValue = 0;
+  let allocationEntries = [];
   const holdingsEl = document.getElementById("profile-holdings");
   if (holdingsEl) {
     try {
@@ -1032,6 +1102,8 @@ async function loadProfileData() {
             const mc = await getLiveMc(mint, registryEntry.pool);
             const pricePerToken = mc / 1000000000;
             const usdValue = amount * pricePerToken;
+            totalTokenUsdValue += usdValue;
+            allocationEntries.push({ symbol, value: usdValue });
             valueHtml = '<div class="stat-block"><div class="stat-label">Value</div><div class="stat-value">$' + usdValue.toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div>';
           } catch (err) {
             console.error("Failed to fetch live value for", symbol, err);
@@ -1044,7 +1116,7 @@ async function loadProfileData() {
           '<div class="token-card-stats"><div class="stat-block"><div class="stat-label">Balance</div><div class="stat-value">' + amount.toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div>' + valueHtml + '</div></div></div>'
         );
       }
-      holdingsEl.innerHTML = rows.join("");
+      if (profilePortfolioTab === "assets" || !profilePortfolioTab) holdingsEl.innerHTML = rows.join("");
       holdingsEl.querySelectorAll(".token-row[data-mint]").forEach((row) => {
         row.addEventListener("click", () => {
           const mint = row.getAttribute("data-mint");
@@ -1052,9 +1124,50 @@ async function loadProfileData() {
           if (launch) { activeToken = launch; currentPage = "detail"; render(); }
         });
       });
+
+      const tokenValueEl = document.getElementById("portfolio-token-value");
+      if (tokenValueEl) tokenValueEl.textContent = "$" + totalTokenUsdValue.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+      const netWorthEl = document.getElementById("portfolio-networth");
+      if (netWorthEl) netWorthEl.textContent = "$" + (solUsdValue + totalTokenUsdValue).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+      const allocationBar = document.getElementById("portfolio-allocation-bar");
+      const allocationLegend = document.getElementById("portfolio-allocation-legend");
+      if (allocationBar && allocationLegend) {
+        const allColors = ["#3DFF9A", "#9945FF", "#FF61D8", "#38BDF8", "#FFD23D", "#FF7A3D"];
+        const allEntries = [{ symbol: "SOL", value: solUsdValue }, ...allocationEntries];
+        const total = allEntries.reduce((sum, e) => sum + e.value, 0);
+        if (total > 0) {
+          allocationBar.innerHTML = allEntries.map((e, i) =>
+            '<div style="width:' + ((e.value / total) * 100).toFixed(1) + '%;background:' + allColors[i % allColors.length] + ';"></div>'
+          ).join("");
+          allocationLegend.innerHTML = allEntries.map((e, i) =>
+            '<div class="allocation-legend-item"><div class="allocation-dot" style="background:' + allColors[i % allColors.length] + ';"></div>' + e.symbol + ' ' + ((e.value / total) * 100).toFixed(0) + '%</div>'
+          ).join("");
+        } else {
+          allocationBar.innerHTML = '<div style="width:100%;background:var(--card-border);"></div>';
+          allocationLegend.innerHTML = '<span class="token-sub">No assets yet.</span>';
+        }
+      }
     } catch (err) {
       console.error("Failed to load token holdings:", err);
-      holdingsEl.innerHTML = '<div class="card empty-state">Couldn\'t load holdings.</div>';
+      if (holdingsEl) holdingsEl.innerHTML = '<div class="card empty-state">Couldn\'t load holdings.</div>';
+    }
+  }
+
+  const txHistoryEl = document.getElementById("profile-tx-history");
+  if (txHistoryEl && profilePortfolioTab === "history") {
+    try {
+      const sigs = await connection.getSignaturesForAddress(new PublicKey(wallet), { limit: 15 });
+      txHistoryEl.innerHTML = sigs.length
+        ? sigs.map((s) =>
+            '<div class="tx-row"><span class="tx-sig">' + s.signature.slice(0, 8) + '...' + s.signature.slice(-6) + '</span>' +
+            '<span class="tx-time">' + (s.blockTime ? new Date(s.blockTime * 1000).toLocaleDateString() : "—") + '</span></div>'
+          ).join("")
+        : '<div class="empty-state">No transactions yet.</div>';
+    } catch (err) {
+      console.error("Failed to load transaction history:", err);
+      txHistoryEl.innerHTML = '<div class="empty-state">Couldn\'t load history.</div>';
     }
   }
 
