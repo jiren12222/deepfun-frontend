@@ -81,6 +81,8 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .trench-icon-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px; display: flex; }
 .trench-icon-btn.starred { color: #FFD23D; }
 .trench-buy-btn { background: var(--accent); color: var(--accent-dark); border: none; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.ticker-thumb { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.ticker-thumb-fallback { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, var(--sol-purple), var(--sol-green)); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 800; color: #0A0A0A; }
 .token-avatar { width: 46px; height: 46px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-dark), #1a2e22); display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--accent); flex-shrink: 0; overflow: hidden; }
 .token-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .token-info { flex: 1; min-width: 0; }
@@ -648,7 +650,10 @@ async function renderHome() {
     const changeHtml = change != null
       ? '<span class="ticker-change ' + (change >= 0 ? "up" : "down") + '">' + (change >= 0 ? "+" : "") + change.toFixed(1) + '%</span>'
       : '';
-    return '<div class="ticker-item"><span class="ticker-symbol">' + l.symbol + '</span>' + changeHtml + '</div>';
+    const imgHtml = l.image_uri
+      ? '<img class="ticker-thumb" src="' + l.image_uri + '" />'
+      : '<span class="ticker-thumb ticker-thumb-fallback">' + (l.symbol ? l.symbol[0] : "?") + '</span>';
+    return '<div class="ticker-item">' + imgHtml + '<span class="ticker-symbol">' + l.symbol + '</span>' + changeHtml + '</div>';
   }).join("");
 
   const list = launches.length
@@ -1540,6 +1545,53 @@ async function render() {
     el.addEventListener("click", async () => {
       const launches = await fetchLaunches();
       activeToken = launches.find((l) => l.mint === el.dataset.mint);
+      tradeMode = "buy";
+      currentPage = "detail";
+      render();
+    });
+  });
+
+  document.querySelectorAll(".trench-card").forEach((el) => {
+    el.addEventListener("click", async (e) => {
+      if (e.target.closest(".trench-icon-btn") || e.target.closest(".trench-buy-btn")) return;
+      const launches = await fetchLaunches();
+      activeToken = launches.find((l) => l.mint === el.dataset.mint);
+      tradeMode = "buy";
+      currentPage = "detail";
+      render();
+    });
+  });
+
+  try {
+    const savedFavorites = JSON.parse(localStorage.getItem("deepfun_favorites") || "[]");
+    document.querySelectorAll(".star-btn").forEach((btn) => {
+      if (savedFavorites.includes(btn.getAttribute("data-mint"))) btn.classList.add("starred");
+    });
+  } catch (err) {}
+
+  document.querySelectorAll(".star-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const mint = btn.getAttribute("data-mint");
+      let favorites = [];
+      try { favorites = JSON.parse(localStorage.getItem("deepfun_favorites") || "[]"); } catch (err) {}
+      if (favorites.includes(mint)) {
+        favorites = favorites.filter((m) => m !== mint);
+        btn.classList.remove("starred");
+      } else {
+        favorites.push(mint);
+        btn.classList.add("starred");
+      }
+      localStorage.setItem("deepfun_favorites", JSON.stringify(favorites));
+    });
+  });
+
+  document.querySelectorAll(".trench-buy-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const mint = btn.getAttribute("data-mint");
+      const launches = await fetchLaunches();
+      activeToken = launches.find((l) => l.mint === mint);
       tradeMode = "buy";
       currentPage = "detail";
       render();
