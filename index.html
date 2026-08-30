@@ -1117,6 +1117,41 @@ async function loadProfileData() {
     solBalance = balanceLamports / 1e9;
     solPriceUsd = price;
 
+    try {
+      const { data: rewards } = await supabase.from("creator_rewards").select("*").eq("creator", targetWallet).eq("network", NETWORK);
+      const rewardsAmountEl = document.getElementById("portfolio-rewards-amount");
+      const claimBtn = document.getElementById("portfolio-claim-btn");
+      const accrued = (rewards || []).filter((r) => r.status === "accrued" || !r.status);
+      const totalOwed = accrued.reduce((sum, r) => sum + Number(r.amount_owed), 0);
+      if (rewardsAmountEl) {
+        rewardsAmountEl.textContent = totalOwed > 0
+          ? totalOwed.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " tokens"
+          : "$0.00";
+      }
+      if (claimBtn) {
+        if (totalOwed > 0) {
+          claimBtn.disabled = false;
+          claimBtn.onclick = async () => {
+            claimBtn.disabled = true;
+            claimBtn.textContent = "Requesting...";
+            try {
+              for (const r of accrued) {
+                await supabase.from("creator_rewards").update({ status: "claim_requested", updated_at: new Date().toISOString() }).eq("id", r.id);
+              }
+              claimBtn.textContent = "Requested";
+              if (rewardsAmountEl) rewardsAmountEl.textContent = "Pending review";
+            } catch (err) {
+              console.error("Claim request failed:", err);
+              claimBtn.disabled = false;
+              claimBtn.textContent = "Claim";
+            }
+          };
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load creator rewards:", err);
+    }
+
   const solUsdValue = solBalance * solPriceUsd;
   const solValueEl = document.getElementById("portfolio-sol-value");
   if (solValueEl) solValueEl.textContent = "$" + solUsdValue.toLocaleString(undefined, { maximumFractionDigits: 2 });
