@@ -262,11 +262,26 @@ function generateDisplayName(address) {
 const BASE_FEE_BPS = 1000;
 
 const SOL_USD_FEED_ID = "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
+let cachedSolPrice = null;
+let cachedSolPriceTime = 0;
+
 async function fetchSolPriceUsd() {
-  const res = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${SOL_USD_FEED_ID}`);
-  const data = await res.json();
-  const p = data.parsed?.[0]?.price;
-  return Number(p.price) * Math.pow(10, p.expo);
+  // Cache for 60s to avoid hammering the API on every token in a list.
+  if (cachedSolPrice && (Date.now() - cachedSolPriceTime) < 60000) return cachedSolPrice;
+  try {
+    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd");
+    const data = await res.json();
+    const price = data?.solana?.usd;
+    if (price) {
+      cachedSolPrice = price;
+      cachedSolPriceTime = Date.now();
+      return price;
+    }
+  } catch (err) {
+    console.error("CoinGecko price fetch failed:", err);
+  }
+  // Last-resort fallback so the UI never fully breaks even if both APIs fail.
+  return cachedSolPrice || 150;
 }
 
 const LOGO_SVG = '<svg width="18" height="18" viewBox="0 0 100 100" fill="none"><defs><linearGradient id="logoGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><g transform="translate(50,52)"><path d="M0,-40 C18,-25 25,-5 18,18 L-18,18 C-25,-5 -18,-25 0,-40 Z" fill="url(#logoGrad)"/><circle cx="0" cy="-12" r="7.5" fill="#08090A"/><path d="M-18,8 L-35,28 L-13,25 Z" fill="url(#logoGrad)"/><path d="M18,8 L35,28 L13,25 Z" fill="url(#logoGrad)"/><path d="M-6,18 L-2,43 L6,18 Z" fill="#F5F7F5"/></g></svg>';
