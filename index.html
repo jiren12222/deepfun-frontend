@@ -106,6 +106,23 @@ h1 { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
 .tx-row:last-child { border-bottom: none; }
 .tx-sig { font-family: monospace; color: var(--text-dim); }
 .tx-time { color: var(--text-dim); }
+.send-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: flex; align-items: flex-end; }
+.send-modal { background: var(--card); border-radius: 20px 20px 0 0; padding: 20px; width: 100%; max-width: 480px; margin: 0 auto; max-height: 85vh; overflow-y: auto; }
+.send-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.send-modal-title { font-size: 18px; font-weight: 800; }
+.send-modal-close { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 4px; display: flex; }
+.send-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.send-tab { flex: 1; text-align: center; padding: 10px; border-radius: 10px; font-weight: 700; font-size: 13px; background: var(--bg); border: 1px solid var(--card-border); color: var(--text-dim); cursor: pointer; }
+.send-tab.active { background: var(--accent); color: var(--accent-dark); border-color: var(--accent); }
+.send-input-label { font-size: 12px; color: var(--text-dim); margin: 12px 0 6px; }
+.send-input { width: 100%; background: var(--bg); border: 1px solid var(--card-border); color: var(--text); border-radius: 10px; padding: 12px; font-size: 14px; box-sizing: border-box; }
+.send-max-row { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.send-max-btn { background: none; border: none; color: var(--accent); font-size: 12px; font-weight: 700; cursor: pointer; }
+.send-confirm-btn { width: 100%; background: var(--accent); color: var(--accent-dark); border: none; border-radius: 12px; padding: 14px; font-weight: 800; font-size: 15px; cursor: pointer; margin-top: 18px; }
+.send-confirm-btn:disabled { background: var(--card-border); color: var(--text-dim); cursor: not-allowed; }
+.send-status { font-size: 12px; color: var(--text-dim); margin-top: 10px; text-align: center; }
+.receive-address-box { background: var(--bg); border: 1px solid var(--card-border); border-radius: 10px; padding: 14px; word-break: break-all; font-size: 12px; font-family: monospace; text-align: center; margin: 12px 0; }
+.receive-copy-btn { width: 100%; background: var(--accent); color: var(--accent-dark); border: none; border-radius: 10px; padding: 12px; font-weight: 700; font-size: 13px; cursor: pointer; }
 .token-avatar { width: 46px; height: 46px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-dark), #1a2e22); display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--accent); flex-shrink: 0; overflow: hidden; }
 .token-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .token-info { flex: 1; min-width: 0; }
@@ -338,6 +355,8 @@ let feedRefreshTimer = null;
 let feedOpenBuyMint = null;
 let profilePortfolioTab = "assets";
 let viewingWallet = null; // set when viewing someone else's profile from Feed
+let sendModalOpen = false;
+let sendModalTab = "send"; // set when viewing someone else's profile from Feed
 let profileDisplayNames = {};
 let showWalletGate = true;
 let currentTokenMc = null;
@@ -1163,7 +1182,7 @@ async function loadProfileData() {
     try {
       const tokenAccounts = await connection.getParsedTokenAccountsByOwner(new PublicKey(wallet), { programId: TOKEN_PROGRAM_ID });
       const rows = [
-        '<div class="token-row"><div class="token-thumb">' + SOL_LOGO_SVG + '</div>' +
+        '<div class="token-row" id="sol-row-clickable" style="cursor:pointer;"><div class="token-thumb">' + SOL_LOGO_SVG + '</div>' +
         '<div class="token-card-body"><div class="token-card-title-row"><span class="token-card-name">Solana</span><span class="token-symbol-badge">SOL</span></div>' +
         '<div class="token-card-stats"><div class="stat-block"><div class="stat-label">Balance</div><div class="stat-value">' + solBalance.toFixed(4) + '</div></div>' +
         '<div class="stat-block"><div class="stat-label">Value</div><div class="stat-value">$' + (solBalance * solPriceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) + '</div></div></div></div></div>'
@@ -1202,6 +1221,15 @@ async function loadProfileData() {
         );
       }
       if (profilePortfolioTab === "assets" || !profilePortfolioTab) holdingsEl.innerHTML = rows.join("");
+      const solRow = document.getElementById("sol-row-clickable");
+      if (solRow) {
+        solRow.addEventListener("click", () => {
+          sendModalOpen = true;
+          sendModalTab = "send";
+          render();
+        });
+      }
+
       holdingsEl.querySelectorAll(".token-row[data-mint]").forEach((row) => {
         row.addEventListener("click", () => {
           const mint = row.getAttribute("data-mint");
@@ -1453,6 +1481,31 @@ async function loadFeedData() {
   }
   el.innerHTML = rows.length ? rows.join("") : '<div class="card empty-state">No calls yet. Be the first to call a token.</div>';
   wireFeedList();
+}
+
+function renderSendModal() {
+  if (!sendModalOpen) return "";
+  const tab = sendModalTab || "send";
+  return '<div class="send-modal-overlay" id="send-modal-overlay">' +
+    '<div class="send-modal">' +
+    '<div class="send-modal-header"><div class="send-modal-title">Solana</div>' +
+    '<button class="send-modal-close" id="send-modal-close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>' +
+    '<div class="send-tabs">' +
+    '<button class="send-tab ' + (tab === "send" ? "active" : "") + '" data-stab="send">Send</button>' +
+    '<button class="send-tab ' + (tab === "receive" ? "active" : "") + '" data-stab="receive">Receive</button>' +
+    '</div>' +
+    (tab === "send"
+      ? '<div class="send-input-label">Recipient address</div>' +
+        '<input class="send-input" id="send-recipient" placeholder="Paste Solana address" />' +
+        '<div class="send-input-label">Amount (SOL)</div>' +
+        '<input class="send-input" id="send-amount" type="number" placeholder="0.0" />' +
+        '<div class="send-max-row"><span class="token-sub" id="send-balance-hint">—</span><button class="send-max-btn" id="send-max-btn">MAX</button></div>' +
+        '<button class="send-confirm-btn" id="send-confirm-btn">Send</button>' +
+        '<div class="send-status" id="send-status"></div>'
+      : '<div class="send-input-label">Your address — scan or copy to receive SOL</div>' +
+        '<div class="receive-address-box" id="receive-address-box">' + (wallet || "") + '</div>' +
+        '<button class="receive-copy-btn" id="receive-copy-btn">Copy Address</button>') +
+    '</div></div>';
 }
 
 function escapeHtml(str) {
@@ -1714,7 +1767,7 @@ async function render() {
   else if (currentPage === "profile") pageHtml = renderProfile();
   else if (currentPage === "feed") pageHtml = renderFeed();
 
-  app.innerHTML = renderHeader() + '<div class="content" style="padding-bottom:90px;">' + pageHtml + '</div>' + renderBottomTabs();
+  app.innerHTML = renderHeader() + '<div class="content" style="padding-bottom:90px;">' + pageHtml + '</div>' + renderBottomTabs() + renderSendModal();
   renderMenu();
 
   document.getElementById("menu-btn")?.addEventListener("click", () => {
@@ -1733,6 +1786,87 @@ async function render() {
   document.querySelectorAll(".nav-item").forEach((btn) => {
     btn.addEventListener("click", () => { viewingWallet = null; currentPage = btn.dataset.page; render(); });
   });
+
+  const sendModalOverlay = document.getElementById("send-modal-overlay");
+  if (sendModalOverlay) {
+    sendModalOverlay.addEventListener("click", (e) => {
+      if (e.target === sendModalOverlay) { sendModalOpen = false; render(); }
+    });
+  }
+  const sendModalClose = document.getElementById("send-modal-close");
+  if (sendModalClose) sendModalClose.addEventListener("click", () => { sendModalOpen = false; render(); });
+
+  document.querySelectorAll(".send-tab").forEach((btn) => {
+    btn.addEventListener("click", () => { sendModalTab = btn.getAttribute("data-stab"); render(); });
+  });
+
+  const receiveCopyBtn = document.getElementById("receive-copy-btn");
+  if (receiveCopyBtn) {
+    receiveCopyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(wallet);
+      receiveCopyBtn.textContent = "Copied!";
+      setTimeout(() => { receiveCopyBtn.textContent = "Copy Address"; }, 1500);
+    });
+  }
+
+  const sendMaxBtn = document.getElementById("send-max-btn");
+  const sendBalanceHint = document.getElementById("send-balance-hint");
+  if (sendMaxBtn && wallet) {
+    connection.getBalance(new PublicKey(wallet)).then((lamports) => {
+      const bal = lamports / 1e9;
+      const feeBuffer = 0.001;
+      const maxSendable = Math.max(0, bal - feeBuffer);
+      if (sendBalanceHint) sendBalanceHint.textContent = "Balance: " + bal.toFixed(4) + " SOL";
+      sendMaxBtn.addEventListener("click", () => {
+        const amountInput = document.getElementById("send-amount");
+        if (amountInput) amountInput.value = maxSendable.toFixed(4);
+      });
+    });
+  }
+
+  const sendConfirmBtn = document.getElementById("send-confirm-btn");
+  if (sendConfirmBtn) {
+    sendConfirmBtn.addEventListener("click", async () => {
+      const statusEl = document.getElementById("send-status");
+      const recipientInput = document.getElementById("send-recipient");
+      const amountInput = document.getElementById("send-amount");
+      const recipientStr = recipientInput.value.trim();
+      const amount = parseFloat(amountInput.value);
+
+      if (!wallet) { statusEl.textContent = "Connect your wallet first."; return; }
+      if (!recipientStr) { statusEl.textContent = "Enter a recipient address."; return; }
+      if (!amount || amount <= 0) { statusEl.textContent = "Enter an amount."; return; }
+
+      let recipient;
+      try {
+        recipient = new PublicKey(recipientStr);
+      } catch (err) {
+        statusEl.textContent = "Invalid Solana address.";
+        return;
+      }
+
+      sendConfirmBtn.disabled = true;
+      statusEl.textContent = "Building transaction...";
+      try {
+        const lamportsToSend = Math.floor(amount * 1e9);
+        const tx = new Transaction().add(
+          SystemProgram.transfer({
+            fromPubkey: new PublicKey(wallet),
+            toPubkey: recipient,
+            lamports: lamportsToSend,
+          })
+        );
+        statusEl.textContent = "Approve in wallet...";
+        const sig = await signAndSend(tx);
+        statusEl.textContent = "✅ Sent! " + sig.slice(0, 12) + "...";
+        setTimeout(() => { sendModalOpen = false; render(); }, 1800);
+      } catch (err) {
+        console.error("Send failed:", err);
+        statusEl.textContent = "Error: " + err.message;
+        sendConfirmBtn.disabled = false;
+      }
+    });
+  }
 
   const backBtn = document.getElementById("back-btn");
   if (backBtn) backBtn.addEventListener("click", () => { currentPage = "home"; render(); });
