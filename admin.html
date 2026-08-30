@@ -38,7 +38,7 @@ input:focus { border-color: var(--accent); }
 
 <script type="module">
 import { Connection, PublicKey, Transaction } from "https://esm.sh/@solana/web3.js@1.95.4";
-import { NATIVE_MINT, TOKEN_PROGRAM_ID } from "https://esm.sh/@solana/spl-token@0.4.9";
+import { NATIVE_MINT, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, unpackAccount, getTransferFeeAmount, harvestWithheldTokensToMint, withdrawWithheldTokensFromMint, getOrCreateAssociatedTokenAccount } from "https://esm.sh/@solana/spl-token@0.4.9";
 import {
   CpAmm, getUnClaimLpFee, derivePositionNftAccount
 } from "https://esm.sh/@meteora-ag/cp-amm-sdk@1.4.4?bundle";
@@ -131,6 +131,132 @@ async function loadAdminData() {
   claimBtn.onclick = () => claimAll(rows.filter((r) => r.pendingSol > 0n));
 }
 
+async function isToken2022(mintAddr) {
+  try {
+    const info = await connection.getAccountInfo(new PublicKey(mintAddr));
+    return info && info.owner.equals(TOKEN_2022_PROGRAM_ID);
+  } catch (err) {
+    return false;
+  }
+}
+
+async function scanWithheldFees(mintAddr) {
+  const mint = new PublicKey(mintAddr);
+  let cursor = null;
+  let totalWithheld = 0n;
+  const accountsToHarvest = [];
+  do {
+    const body = {
+      jsonrpc: "2.0", id: "scan", method: "getProgramAccountsV2",
+      params: [TOKEN_2022_PROGRAM_ID.toBase58(), {
+        encoding: "base64", limit: 1000, cursor,
+        filters: [{ memcmp: { offset: 0, bytes: mintAddr } }],
+      }],
+    };
+    const res = await fetch(RPC_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.error) throw new Error(JSON.stringify(data.error));
+    const accounts = data.result?.accounts || data.result || [];
+    for (const item of accounts) {
+      try {
+        const pubkey = new PublicKey(item.pubkey);
+        const rawData = Buffer.from(item.account.data[0], "base64");
+        const fakeInfo = { data: rawData, executable: item.account.executable, lamports: item.account.lamports, owner: new PublicKey(item.account.owner), rentEpoch: item.account.rentEpoch };
+        const unpacked = unpackAccount(pubkey, fakeInfo, TOKEN_2022_PROGRAM_ID);
+        const fee = getTransferFeeAmount(unpacked);
+        if (fee && fee.withheldAmount > 0n) {
+          accountsToHarvest.push(pubkey);
+          totalWithheld += fee.withheldAmount;
+        }
+      } catch (e) {}
+    }
+    cursor = data.result?.paginationKey || null;
+  } while (cursor);
+  return { totalWithheld, accountsToHarvest };
+}
+
+async function harvestAndWithdraw(mintAddr, accountsToHarvest, decimals) {
+  const mint = new PublicKey(mintAddr);
+  if (accountsToHarvest.length > 0) {
+    const harvestTx = new Transaction();
+    const { createHarvestWithheldTokensToMintInstruction } = await import("https://esm.sh/@solana/spl-token@0.4.9");
+    harvestTx.add(createHarvestWithheldTokensToMintInstruction(mint, accountsToHarvest, TOKEN_2022_PROGRAM_ID));
+    const sig1 = await signAndSend(harvestTx);
+    console.log("Harvested: https://solscan.io/tx/" + sig1);
+  }
+
+  const { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, createWithdrawWithheldTokensFromMintInstruction } = await import("https://esm.sh/@solana/spl-token@0.4.9");
+  const treasuryAta = getAssociatedTokenAddressSync(mint, new PublicKey(wallet), false, TOKEN_2022_PROGRAM_ID);
+  const withdrawTx = new Transaction();
+  withdrawTx.add(createAssociatedTokenAccountIdempotentInstruction(new PublicKey(wallet), treasuryAta, new PublicKey(wallet), mint, TOKEN_2022_PROGRAM_ID));
+  withdrawTx.add(createWithdrawWithheldTokensFromMintInstruction(mint, treasuryAta, new PublicKey(wallet), [], TOKEN_2022_PROGRAM_ID));
+  const sig2 = await signAndSend(withdrawTx);
+  console.log("Withdrawn: https://solscan.io/tx/" + sig2);
+  return sig2;
+}
+
+async function loadTransferFeeData() {
+  const launches = await fetchLaunches();
+  const mainnetLaunches = launches.filter((l) => l.network === NETWORK);
+  const listEl = document.getElementById("t22-list");
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="token-sub">Checking tokens...</div>';
+
+  const rows = [];
+  for (const l of mainnetLaunches) {
+    const is2022 = await isToken2022(l.mint);
+    if (!is2022) continue;
+    rows.push(l);
+  }
+
+  if (!rows.length) {
+    listEl.innerHTML = '<div class="token-sub">No Token-2022 launches found yet.</div>';
+    return;
+  }
+
+  listEl.innerHTML = rows.map((l) =>
+    '<div class="card" data-mint="' + l.mint + '" style="margin:8px 0;">' +
+    '<div class="token-name">' + l.name + ' (' + l.symbol + ')</div>' +
+    '<div class="token-sub" id="t22-status-' + l.mint + '">Scanning...</div>' +
+    '<button class="btn btn-primary" id="t22-harvest-' + l.mint + '" style="margin-top:10px;" disabled>Harvest</button>' +
+    '</div>'
+  ).join("");
+
+  for (const l of rows) {
+    try {
+      const { totalWithheld, accountsToHarvest } = await scanWithheldFees(l.mint);
+      const statusEl = document.getElementById("t22-status-" + l.mint);
+      const btn = document.getElementById("t22-harvest-" + l.mint);
+      const amountWhole = Number(totalWithheld) / (10 ** 6);
+      if (totalWithheld > 0n) {
+        statusEl.textContent = amountWhole.toLocaleString(undefined, { maximumFractionDigits: 2 }) + " " + l.symbol + " unharvested — not ready to claim yet";
+        btn.disabled = false;
+        btn.textContent = "Harvest";
+        btn.onclick = async () => {
+          btn.disabled = true;
+          btn.textContent = "Harvesting...";
+          try {
+            await harvestAndWithdraw(l.mint, accountsToHarvest, 6);
+            statusEl.textContent = "✅ Ready to claim: " + amountWhole.toLocaleString(undefined, { maximumFractionDigits: 2 }) + " " + l.symbol;
+            btn.textContent = "Harvested";
+          } catch (err) {
+            console.error(err);
+            statusEl.textContent = "Harvest failed — see console.";
+            btn.disabled = false;
+            btn.textContent = "Retry";
+          }
+        };
+      } else {
+        statusEl.textContent = "No fees withheld yet.";
+      }
+    } catch (err) {
+      console.error("Scan failed for " + l.symbol + ":", err);
+      const statusEl = document.getElementById("t22-status-" + l.mint);
+      if (statusEl) statusEl.textContent = "Scan failed — see console.";
+    }
+  }
+}
+
 async function claimAll(rows) {
   for (const r of rows) {
     try {
@@ -179,12 +305,14 @@ function render() {
     (wallet
       ? '<div class="card"><div class="token-sub">Total claimable fees (all launches)</div>' +
         '<div class="claim-amount" id="claim-total">Loading...</div>' +
-        '<button class="btn btn-primary" id="claim-all-btn" disabled>Claim All</button></div>'
+        '<button class="btn btn-primary" id="claim-all-btn" disabled>Claim All</button></div>' +
+        '<div class="card"><div class="token-sub" style="margin-bottom:10px;">Transfer Fee Rewards (Token-2022)</div>' +
+        '<div id="t22-list"><div class="token-sub">Loading...</div></div></div>'
       : "");
 
   const connectBtn = document.getElementById("connect-btn");
   if (connectBtn) connectBtn.addEventListener("click", connectWallet);
-  if (wallet) loadAdminData();
+  if (wallet) { loadAdminData(); loadTransferFeeData(); }
 }
 
 render();
