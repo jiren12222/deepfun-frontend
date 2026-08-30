@@ -984,7 +984,6 @@ function renderProfile() {
     '<div><div class="token-sub">Claimable Rewards</div><div class="rewards-amount" id="portfolio-rewards-amount">$0.00</div><div class="rewards-sub">From creator fee share</div></div>' +
     '<button class="claim-btn" id="portfolio-claim-btn" disabled>Claim</button>' +
     '</div>' +
-    '<div style="font-size:11px;color:var(--text-dim);margin-top:10px;">Creator reward payouts are being finalized on the backend — this will populate automatically once live.</div>' +
     '</div>' +
     '<div class="card">' +
     '<div class="token-sub" style="margin-bottom:4px;">Asset allocation</div>' +
@@ -999,7 +998,7 @@ function renderProfile() {
     '<div id="portfolio-tab-content">' +
     (tab === "assets" ? '<div class="token-list" id="profile-holdings"><div class="card empty-state">Loading...</div></div>' :
      tab === "history" ? '<div class="card" id="profile-tx-history"><div class="empty-state">Loading...</div></div>' :
-     '<div class="card" style="font-size:12px;color:var(--text-dim);">PnL Calendar isn\'t built yet — it needs a proper trade-history and cost-basis system, coming as its own feature.</div>') +
+     '<div class="card empty-state">No PnL data yet.</div>') +
     '</div>' +
     '<div class="section-label">STATS</div>' +
     '<div class="card"><div style="display:flex;justify-content:space-between;">' +
