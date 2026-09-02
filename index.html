@@ -226,8 +226,11 @@ import { Connection, Keypair, PublicKey, Transaction, SystemProgram } from "http
 import {
   createInitializeMintInstruction, createMintToInstruction, createSetAuthorityInstruction,
   AuthorityType, getAssociatedTokenAddress, createAssociatedTokenAccountInstruction,
-  MINT_SIZE, getMinimumBalanceForRentExemptMint, TOKEN_PROGRAM_ID, NATIVE_MINT
+  MINT_SIZE, getMinimumBalanceForRentExemptMint, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, NATIVE_MINT,
+  getMint, ExtensionType, getMintLen, createInitializeTransferFeeConfigInstruction,
+  createInitializeMetadataPointerInstruction, createInitializeMintInstruction as createInitializeMintInstruction2022,
 } from "https://esm.sh/@solana/spl-token@0.4.9";
+import { createInitializeInstruction as createInitializeMetadataInstruction, pack as packTokenMetadata } from "https://esm.sh/@solana/spl-token-metadata@0.1.6";
 import {
   CpAmm, getSqrtPriceFromPrice, getPriceFromSqrtPrice, getBaseFeeParams, BaseFeeMode, ActivationType, CollectFeeMode
 } from "https://esm.sh/@meteora-ag/cp-amm-sdk@1.4.4?bundle";
@@ -277,7 +280,8 @@ function generateDisplayName(address) {
   const noun = nouns[(hash >> 4) % nouns.length];
   return adj + " " + noun;
 }
-const BASE_FEE_BPS = 1000;
+const BASE_FEE_BPS = 1;
+const TREASURY_WALLET = "8CiTvdg1YF1WHi2xs1mFhT5ABCeSYrt25CLNC6t5hH2C";
 
 const SOL_USD_FEED_ID = "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
 let cachedSolPrice = null;
@@ -434,6 +438,19 @@ async function signAndSend(tx, extraSigners = []) {
 }
 
 // ---------- LAUNCH: mint + metadata + pool, metadata BEFORE authority revoke ----------
+const tokenProgramCache = {};
+async function getTokenProgramForMint(mintAddr) {
+  if (tokenProgramCache[mintAddr]) return tokenProgramCache[mintAddr];
+  try {
+    const info = await connection.getAccountInfo(new PublicKey(mintAddr));
+    const programId = info && info.owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+    tokenProgramCache[mintAddr] = programId;
+    return programId;
+  } catch (err) {
+    return TOKEN_PROGRAM_ID;
+  }
+}
+
 async function submitLaunch() {
   const name = document.getElementById("launch-name").value.trim();
   const symbol = document.getElementById("launch-symbol").value.trim();
@@ -495,36 +512,44 @@ async function submitLaunch() {
     }
 
     statusEl.textContent = "Building transaction...";
-    const lamports = await getMinimumBalanceForRentExemptMint(connection);
-    const vaultAta = await getAssociatedTokenAddress(mint.publicKey, payer);
+    const treasuryPubkey = new PublicKey(TREASURY_WALLET);
+    const vaultAta = await getAssociatedTokenAddress(mint.publicKey, payer, false, TOKEN_2022_PROGRAM_ID);
 
-    const [metadataPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata"), METADATA_PROGRAM_ID.toBuffer(), mint.publicKey.toBuffer()],
-      METADATA_PROGRAM_ID
-    );
-    const metadataIx = createCreateMetadataAccountV3Instruction(
-      { metadata: metadataPda, mint: mint.publicKey, mintAuthority: payer, payer, updateAuthority: payer },
-      {
-        createMetadataAccountArgsV3: {
-          data: { name, symbol, uri: metadataUri, sellerFeeBasisPoints: 0, creators: null, collection: null, uses: null },
-          isMutable: true, collectionDetails: null,
-        },
-      }
-    );
+    const metadataObj = { mint: mint.publicKey, name, symbol, uri: metadataUri, additionalMetadata: [] };
+    const metadataLen = packTokenMetadata(metadataObj).length;
+    const mintLen = getMintLen([ExtensionType.TransferFeeConfig, ExtensionType.MetadataPointer]);
+    const lamports = await connection.getMinimumBalanceForRentExemption(mintLen + metadataLen + 4);
 
-    // Metadata created BEFORE authority revoke — fixes earlier bug where
-    // revoking authority first made metadata impossible to add afterward.
     const tokenInstructions = [
       SystemProgram.createAccount({
         fromPubkey: payer, newAccountPubkey: mint.publicKey,
-        space: MINT_SIZE, lamports, programId: TOKEN_PROGRAM_ID,
+        space: mintLen, lamports, programId: TOKEN_2022_PROGRAM_ID,
       }),
-      createInitializeMintInstruction(mint.publicKey, TOKEN_DECIMALS, payer, null),
-      metadataIx,
-      createAssociatedTokenAccountInstruction(payer, vaultAta, payer, mint.publicKey),
-      createMintToInstruction(mint.publicKey, vaultAta, payer, supplyRaw),
-      createSetAuthorityInstruction(mint.publicKey, payer, AuthorityType.MintTokens, null)
+      createInitializeTransferFeeConfigInstruction(
+        mint.publicKey, null, treasuryPubkey, 300, BigInt("18446744073709551615"), TOKEN_2022_PROGRAM_ID
+      ),
+      createInitializeMetadataPointerInstruction(mint.publicKey, payer, mint.publicKey, TOKEN_2022_PROGRAM_ID),
+      createInitializeMintInstruction2022(mint.publicKey, TOKEN_DECIMALS, payer, null, TOKEN_2022_PROGRAM_ID),
+      createInitializeMetadataInstruction({
+        programId: TOKEN_2022_PROGRAM_ID, mint: mint.publicKey, metadata: mint.publicKey,
+        name, symbol, uri: metadataUri, mintAuthority: payer, updateAuthority: payer,
+      }),
+      createAssociatedTokenAccountInstruction(payer, vaultAta, payer, mint.publicKey, TOKEN_2022_PROGRAM_ID),
+      createMintToInstruction(mint.publicKey, vaultAta, payer, supplyRaw, [], TOKEN_2022_PROGRAM_ID),
+      createSetAuthorityInstruction(mint.publicKey, payer, AuthorityType.MintTokens, null, [], TOKEN_2022_PROGRAM_ID)
     ];
+
+    // Step 1: create the Token-2022 mint FOR REAL and wait for confirmation.
+    // The pool-creation math below needs to read this mint's real on-chain
+    // state (getMint), which cannot happen until it actually exists —
+    // this is why token creation and pool creation must be two separate,
+    // sequential transactions rather than combined into one.
+    statusEl.textContent = "Step 1/2: approve token creation...";
+    await signAndSend(new Transaction().add(...tokenInstructions), [mint]);
+
+    statusEl.textContent = "Confirming token...";
+    const parsedTokenMint = await getMint(connection, mint.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
+    const epochInfo = await connection.getEpochInfo();
 
     const solPriceUsd = await fetchSolPriceUsd();
     const startingPriceSol = 5000 / totalSupplyWhole / solPriceUsd;
@@ -538,10 +563,13 @@ async function submitLaunch() {
       9, ActivationType.Timestamp
     );
 
+    // Fee-aware liquidity math using the REAL parsed mint — matches the
+    // proven, tested approach from the backend scripts exactly.
     const liquidityDelta = cpAmm.preparePoolCreationSingleSide({
       tokenAAmount: new BN(supplyRaw.toString()),
       minSqrtPrice: sqrtMinPrice, maxSqrtPrice: sqrtMaxPrice, initSqrtPrice,
       collectFeeMode: CollectFeeMode.OnlyB,
+      tokenAInfo: { mint: parsedTokenMint, currentEpoch: epochInfo.epoch },
     });
 
     const created = await cpAmm.createCustomPool({
@@ -552,25 +580,12 @@ async function submitLaunch() {
       poolFees: { baseFee, compoundingFeeBps: 0, padding: 0, dynamicFee: null },
       hasAlphaVault: false, activationType: ActivationType.Timestamp,
       collectFeeMode: CollectFeeMode.OnlyB, activationPoint: null,
-      tokenAProgram: TOKEN_PROGRAM_ID, tokenBProgram: TOKEN_PROGRAM_ID,
+      tokenAProgram: TOKEN_2022_PROGRAM_ID, tokenBProgram: TOKEN_PROGRAM_ID,
     });
     const poolTx = created.tx, pool = created.pool, position = created.position;
 
-    const combinedTx = new Transaction().add(...tokenInstructions, ...poolTx.instructions);
-
-    statusEl.textContent = "Approve in Phantom...";
-    let sig;
-    try {
-      sig = await signAndSend(combinedTx, [mint, positionNftMint]);
-    } catch (sizeErr) {
-      const msg = String(sizeErr.message).toLowerCase();
-      if (msg.includes("too large") || msg.includes("transaction too")) {
-        statusEl.textContent = "Splitting into two steps...";
-        await signAndSend(new Transaction().add(...tokenInstructions), [mint]);
-        statusEl.textContent = "Step 2/2: approve pool creation...";
-        sig = await signAndSend(poolTx, [positionNftMint]);
-      } else { throw sizeErr; }
-    }
+    statusEl.textContent = "Step 2/2: approve pool creation...";
+    const sig = await signAndSend(poolTx, [positionNftMint]);
 
     statusEl.textContent = "Saving to registry...";
     const { error } = await supabase.from("Deepfun1").insert({
@@ -597,10 +612,24 @@ async function getQuoteForAmount(amountVal) {
   const blockTime = await connection.getBlockTime(slot);
   const inputMint = tradeMode === "buy" ? NATIVE_MINT : new PublicKey(activeToken.mint);
   const amountIn = tradeMode === "buy" ? new BN(Math.floor(amountVal * 1e9)) : new BN(Math.floor(amountVal * (10 ** TOKEN_DECIMALS)));
+
+  const tokenProgram = await getTokenProgramForMint(activeToken.mint);
+  let feeInfo = {};
+  if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+    const parsedMint = await getMint(connection, new PublicKey(activeToken.mint), "confirmed", TOKEN_2022_PROGRAM_ID);
+    const epochInfo = await connection.getEpochInfo();
+    // Fee applies to whichever side is the Token-2022 mint — buying means
+    // our token is the OUTPUT, selling means it's the INPUT.
+    feeInfo = tradeMode === "buy"
+      ? { outputTokenInfo: { mint: parsedMint, currentEpoch: epochInfo.epoch } }
+      : { inputTokenInfo: { mint: parsedMint, currentEpoch: epochInfo.epoch } };
+  }
+
   return cpAmm.getQuote({
     inAmount: amountIn, inputTokenMint: inputMint, slippage: 5, poolState,
     currentTime: blockTime || Math.floor(Date.now() / 1000), currentSlot: slot,
     tokenADecimal: TOKEN_DECIMALS, tokenBDecimal: 9,
+    ...feeInfo,
   });
 }
 
@@ -616,6 +645,7 @@ async function executeTrade() {
     const pool = new PublicKey(activeToken.pool);
     const poolState = await cpAmm.fetchPoolState(pool);
     const tokenAMint = new PublicKey(activeToken.mint);
+    const tokenAProgram = await getTokenProgramForMint(activeToken.mint);
     const inputMint = tradeMode === "buy" ? NATIVE_MINT : tokenAMint;
     const outputMint = tradeMode === "buy" ? tokenAMint : NATIVE_MINT;
     const amountIn = tradeMode === "buy" ? new BN(Math.floor(amount * 1e9)) : new BN(Math.floor(amount * (10 ** TOKEN_DECIMALS)));
@@ -623,7 +653,7 @@ async function executeTrade() {
       payer: new PublicKey(wallet), pool, inputTokenMint: inputMint, outputTokenMint: outputMint,
       amountIn, minimumAmountOut: quote.minSwapOutAmount, tokenAMint, tokenBMint: NATIVE_MINT,
       tokenAVault: poolState.tokenAVault, tokenBVault: poolState.tokenBVault,
-      tokenAProgram: TOKEN_PROGRAM_ID, tokenBProgram: TOKEN_PROGRAM_ID, referralTokenAccount: null,
+      tokenAProgram, tokenBProgram: TOKEN_PROGRAM_ID, referralTokenAccount: null,
     });
     statusEl.textContent = "Approve in Phantom...";
     const sig = await signAndSend(tx);
@@ -640,7 +670,11 @@ async function loadWalletData() {
   const balanceLamports = await connection.getBalance(owner);
   document.getElementById("wallet-balance").textContent = (balanceLamports / 1e9).toFixed(4) + " SOL";
 
-  const tokenAccounts = await connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID });
+  const [classicAccounts, t22Accounts] = await Promise.all([
+    connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID }),
+    connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_2022_PROGRAM_ID }),
+  ]);
+  const tokenAccounts = { value: [...classicAccounts.value, ...t22Accounts.value] };
   const launches = await fetchLaunches();
   const holdingsEl = document.getElementById("wallet-holdings");
   const holdings = tokenAccounts.value
@@ -1180,7 +1214,11 @@ async function loadProfileData() {
   const holdingsEl = document.getElementById("profile-holdings");
   if (holdingsEl) {
     try {
-      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(new PublicKey(wallet), { programId: TOKEN_PROGRAM_ID });
+      const [classicAccounts, t22Accounts] = await Promise.all([
+        connection.getParsedTokenAccountsByOwner(new PublicKey(wallet), { programId: TOKEN_PROGRAM_ID }),
+        connection.getParsedTokenAccountsByOwner(new PublicKey(wallet), { programId: TOKEN_2022_PROGRAM_ID }),
+      ]);
+      const tokenAccounts = { value: [...classicAccounts.value, ...t22Accounts.value] };
       const rows = [
         '<div class="token-row" id="sol-row-clickable" style="cursor:pointer;"><div class="token-thumb">' + SOL_LOGO_SVG + '</div>' +
         '<div class="token-card-body"><div class="token-card-title-row"><span class="token-card-name">Solana</span><span class="token-symbol-badge">SOL</span></div>' +
@@ -1663,16 +1701,26 @@ async function executeFeedTrade(mint, poolAddr, amountSol, statusEl) {
   const blockTime = await connection.getBlockTime(slot);
   const tokenAMint = new PublicKey(mint);
   const amountIn = new BN(Math.floor(amountSol * 1e9));
+  const tokenAProgram = await getTokenProgramForMint(mint);
+
+  let feeInfo = {};
+  if (tokenAProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+    const parsedMint = await getMint(connection, tokenAMint, "confirmed", TOKEN_2022_PROGRAM_ID);
+    const epochInfo = await connection.getEpochInfo();
+    feeInfo = { outputTokenInfo: { mint: parsedMint, currentEpoch: epochInfo.epoch } };
+  }
+
   const quote = await cpAmm.getQuote({
     inAmount: amountIn, inputTokenMint: NATIVE_MINT, slippage: 5, poolState,
     currentTime: blockTime || Math.floor(Date.now() / 1000), currentSlot: slot,
     tokenADecimal: TOKEN_DECIMALS, tokenBDecimal: 9,
+    ...feeInfo,
   });
   const tx = await cpAmm.swap({
     payer: new PublicKey(wallet), pool, inputTokenMint: NATIVE_MINT, outputTokenMint: tokenAMint,
     amountIn, minimumAmountOut: quote.minSwapOutAmount, tokenAMint, tokenBMint: NATIVE_MINT,
     tokenAVault: poolState.tokenAVault, tokenBVault: poolState.tokenBVault,
-    tokenAProgram: TOKEN_PROGRAM_ID, tokenBProgram: TOKEN_PROGRAM_ID, referralTokenAccount: null,
+    tokenAProgram, tokenBProgram: TOKEN_PROGRAM_ID, referralTokenAccount: null,
   });
   statusEl.textContent = "Approve in Phantom...";
   const sig = await signAndSend(tx);
